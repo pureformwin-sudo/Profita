@@ -3,6 +3,28 @@
 import { createClient } from '@/lib/supabase/client'
 import type { InAppNotification, InAppNotificationType, InAppNotificationCategory, Job, Invoice, Estimate, Customer } from './types'
 
+// Get the current user's company ID
+async function getUserCompanyId(): Promise<string | null> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  // First check if user owns a company
+  const { data: ownedCompany } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('owner_user_id', user.id)
+    .maybeSingle()
+
+  if (ownedCompany) return ownedCompany.id
+
+  // Check if user is a member of a company via RPC
+  const { data: membership } = await supabase.rpc('get_my_membership')
+  if (membership?.company_id) return membership.company_id
+
+  return null
+}
+
 // Map notification types to their categories
 const TYPE_TO_CATEGORY: Record<InAppNotificationType, InAppNotificationCategory> = {
   // Jobs
@@ -201,11 +223,13 @@ export async function createInAppNotification(data: {
   }
 
   const category = TYPE_TO_CATEGORY[data.type]
+  const companyId = await getUserCompanyId()
 
   const { data: result, error } = await supabase
     .from('in_app_notifications')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       type: data.type,
       category,
       title: data.title,

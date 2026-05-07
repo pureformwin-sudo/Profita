@@ -1,27 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
 
-// Get the current user's company ID
-async function getUserCompanyId(): Promise<string | null> {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  // First check if user owns a company
-  const { data: ownedCompany } = await supabase
-    .from('companies')
-    .select('id')
-    .eq('owner_user_id', user.id)
-    .maybeSingle()
-
-  if (ownedCompany) return ownedCompany.id
-
-  // Check if user is a member of a company via RPC
-  const { data: membership } = await supabase.rpc('get_my_membership')
-  if (membership?.company_id) return membership.company_id
-
-  return null
-}
-
 export type LeadStatus =
   | 'knocked'
   | 'not_home'
@@ -172,13 +150,10 @@ export async function createLead(input: {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { data: null, error: 'Not authenticated.' }
 
-  const companyId = await getUserCompanyId()
-
   const { data, error } = await supabase
     .from('leads')
     .insert({
       user_id: user.id, // Always use authenticated user
-      company_id: companyId,
       owner_employee_id: input.repEmployeeId ?? null,
       territory_id: input.territoryId ?? null,
       name: input.name ?? '',
@@ -261,13 +236,10 @@ export async function createTerritory(input: {
   centerLng?: number | null
 }): Promise<{ data: Territory | null; error: string | null }> {
   const supabase = createClient()
-  const companyId = await getUserCompanyId()
-  
   const { data, error } = await supabase
     .from('territories')
     .insert({
       user_id: input.ownerUserId,
-      company_id: companyId,
       name: input.name,
       color: input.color ?? '#10b981',
       center_lat: input.centerLat ?? null,

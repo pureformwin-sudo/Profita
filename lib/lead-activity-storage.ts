@@ -6,6 +6,32 @@ import type { ActivityType, LeadActivity } from '@/lib/lead-activity-types'
 // Re-export types for consumers
 export type { ActivityType, LeadActivity } from '@/lib/lead-activity-types'
 
+// Get the current user's company ID (server-side)
+async function getUserCompanyId(): Promise<string | null> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  // First check if user owns a company
+  const { data: ownedCompany } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('owner_user_id', user.id)
+    .maybeSingle()
+
+  if (ownedCompany) return ownedCompany.id
+
+  // Check if user is a member of a company
+  const { data: membership } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  return membership?.company_id || null
+}
+
 // =============================================================================
 // Lead Activity CRUD
 // =============================================================================
@@ -44,11 +70,13 @@ export async function logActivity(input: {
   metadata?: Record<string, any>
 }): Promise<{ data: LeadActivity | null; error: string | null }> {
   const supabase = await createClient()
+  const companyId = await getUserCompanyId()
 
   const { data, error } = await supabase
     .from('lead_activity')
     .insert({
       user_id: input.ownerUserId,
+      company_id: companyId,
       lead_id: input.leadId,
       rep_employee_id: input.repEmployeeId,
       activity_type: input.activityType,

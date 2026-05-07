@@ -163,7 +163,6 @@ export async function assignCustomerToPlan(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   
-  const companyId = await getUserCompanyId()
   const startDate = options?.startDate || new Date().toISOString().split('T')[0]
   
   // Calculate next billing date based on plan frequency
@@ -204,7 +203,6 @@ export async function assignCustomerToPlan(
     .from('customer_plans')
     .upsert({
       user_id: user.id,
-      company_id: companyId,
       customer_id: customerId,
       plan_id: planId,
       status: planId ? 'active' : 'cancelled',
@@ -275,13 +273,10 @@ export async function saveAutomations(automations: Partial<PlanAutomations>): Pr
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return false
   
-  const companyId = await getUserCompanyId()
-  
   const { error } = await supabase
     .from('plan_automations')
     .upsert({
       user_id: user.id,
-      company_id: companyId,
       ...automations,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' })

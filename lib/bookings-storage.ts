@@ -2,6 +2,32 @@
 
 import { createClient } from '@/lib/supabase/server'
 
+// Get the current user's company ID (server-side)
+async function getUserCompanyId(): Promise<string | null> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  // First check if user owns a company
+  const { data: ownedCompany } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('owner_user_id', user.id)
+    .maybeSingle()
+
+  if (ownedCompany) return ownedCompany.id
+
+  // Check if user is a member of a company
+  const { data: membership } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  return membership?.company_id || null
+}
+
 export interface Booking {
   id: string
   lead_id: string | null
@@ -95,10 +121,13 @@ export async function createBooking(booking: {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, error: 'Not authenticated' }
   
+  const companyId = await getUserCompanyId()
+  
   const { data, error } = await supabase
     .from('bookings')
     .insert({
       ...booking,
+      company_id: companyId,
       status: 'scheduled',
       created_by: user.id,
     })

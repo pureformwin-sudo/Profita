@@ -1,5 +1,27 @@
 import { createClient, getCachedUser } from '@/lib/supabase/client'
 
+// Get the current user's company ID
+async function getUserCompanyId(): Promise<string | null> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  // First check if user owns a company
+  const { data: ownedCompany } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('owner_user_id', user.id)
+    .maybeSingle()
+
+  if (ownedCompany) return ownedCompany.id
+
+  // Check if user is a member of a company via RPC
+  const { data: membership } = await supabase.rpc('get_my_membership')
+  if (membership?.company_id) return membership.company_id
+
+  return null
+}
+
 export type DayData = {
   doors: number
   leads: number
@@ -80,8 +102,11 @@ export async function saveDay(date: string, data: DayData): Promise<void> {
     return
   }
 
+  const companyId = await getUserCompanyId()
+
   const payload = {
     user_id: user.id,
+    company_id: companyId,
     date,
     doors: data.doors,
     leads: data.leads,
