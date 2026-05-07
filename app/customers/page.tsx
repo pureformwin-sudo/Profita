@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { getCustomers, addCustomer, deleteCustomer, updateCustomer, getIncome, getJobs, getEstimates, getInvoices } from '@/lib/storage'
 import { Customer, Income, Job, Estimate, Invoice } from '@/lib/types'
 import { toast } from 'sonner'
-import { Plus, Trash2, Phone, MapPin, Search, Pencil, Mail, MoreVertical, Users } from 'lucide-react'
+import { Plus, Trash2, Phone, MapPin, Search, Pencil, Mail, MoreVertical, Users, AlertCircle, DollarSign } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { SmartBadge } from '@/components/ai/smart-badge'
@@ -94,19 +94,28 @@ export default function CustomersPage() {
   return customerJobs[0]?.date || null
   }
 
-  // Get customer CRM stats
+  // Get customer CRM stats with balance calculations
   const getCustomerCRMStats = (customerId: string) => {
-  const customerEstimates = estimates.filter(e => e.customerId === customerId)
-  const customerInvoices = invoices.filter(i => i.customerId === customerId)
-  const pendingInvoices = customerInvoices.filter(i => i.status === 'sent' || i.status === 'overdue')
-  const paidInvoices = customerInvoices.filter(i => i.status === 'paid')
-  
-  return {
-    estimateCount: customerEstimates.length,
-    invoiceCount: customerInvoices.length,
-    pendingAmount: pendingInvoices.reduce((sum, i) => sum + (i.total - i.amountPaid), 0),
-    totalPaid: paidInvoices.reduce((sum, i) => sum + i.total, 0),
-  }
+    const customerEstimates = estimates.filter(e => e.customerId === customerId)
+    const customerInvoices = invoices.filter(i => i.customerId === customerId)
+    const pendingInvoices = customerInvoices.filter(i => i.status === 'sent' || i.status === 'overdue')
+    const overdueInvoices = customerInvoices.filter(i => i.status === 'overdue')
+    
+    // Calculate totals from all invoices (not just paid ones)
+    const totalInvoiced = customerInvoices.reduce((sum, i) => sum + i.total, 0)
+    const totalPaid = customerInvoices.reduce((sum, i) => sum + i.amountPaid, 0)
+    const balanceDue = totalInvoiced - totalPaid
+    const overdueAmount = overdueInvoices.reduce((sum, i) => sum + (i.total - i.amountPaid), 0)
+    
+    return {
+      estimateCount: customerEstimates.length,
+      invoiceCount: customerInvoices.length,
+      totalInvoiced,
+      totalPaid,
+      balanceDue,
+      overdueAmount,
+      pendingAmount: pendingInvoices.reduce((sum, i) => sum + (i.total - i.amountPaid), 0),
+    }
   }
 
   // Separate sales rep customers from regular customers
@@ -274,15 +283,15 @@ if (result) {
             {sortedRegularCustomers.length > 0 && (
               <div className="border border-border rounded-lg overflow-hidden bg-card">
 {/* Table Header */}
-  <div className="hidden lg:grid lg:grid-cols-[40px_1fr_80px_100px_80px_80px_80px] gap-4 px-4 py-2.5 bg-muted/50 border-b border-border text-xs font-medium text-muted-foreground uppercase tracking-wider">
-  <div></div>
-  <div>Customer</div>
-  <div className="text-center">Jobs</div>
-  <div className="text-center">Inv</div>
-  <div className="text-right">Value</div>
-  <div className="text-right">Last Service</div>
-  <div></div>
-  </div>
+                <div className="hidden lg:grid lg:grid-cols-[40px_1fr_80px_80px_100px_80px_80px] gap-4 px-4 py-2.5 bg-muted/50 border-b border-border text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <div></div>
+                  <div>Customer</div>
+                  <div className="text-center">Jobs</div>
+                  <div className="text-center">Balance</div>
+                  <div className="text-right">Value</div>
+                  <div className="text-right">Last Service</div>
+                  <div></div>
+                </div>
                 
                 {sortedRegularCustomers.map((customer, idx) => {
                   const value = getCustomerValue(customer.id)
@@ -358,11 +367,22 @@ return (
                         <span className="font-medium">{jobCount}</span>
                       </div>
                       
-                      {/* Desktop: Invoices */}
+                      {/* Desktop: Balance Due */}
                       <div className="hidden lg:block text-center">
-                        <span className="font-medium">{crmStats.invoiceCount}</span>
-                        {crmStats.pendingAmount > 0 && (
-                          <p className="text-[10px] text-amber-500">${crmStats.pendingAmount.toFixed(0)} due</p>
+                        {crmStats.balanceDue > 0 ? (
+                          <>
+                            <span className={`font-medium ${crmStats.overdueAmount > 0 ? 'text-red-500' : 'text-amber-500'}`}>
+                              ${crmStats.balanceDue.toFixed(0)}
+                            </span>
+                            {crmStats.overdueAmount > 0 && (
+                              <p className="text-[10px] text-red-500 flex items-center justify-center gap-0.5">
+                                <AlertCircle className="h-2.5 w-2.5" />
+                                Overdue
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </div>
                       

@@ -14,6 +14,9 @@ import type {
   RefundPaymentResult 
 } from './payments-types'
 
+// Re-export types for consumers
+export type { PaymentMethod, PaymentStatus }
+
 // Get Supabase client
 function getSupabase() {
   return createClient()

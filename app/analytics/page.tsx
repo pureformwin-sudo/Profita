@@ -71,6 +71,7 @@ export default function AnalyticsPage() {
     const filteredExpenses = filterByPeriod(expenses)
     const filteredJobs = filterByPeriod(jobs)
 
+    // Collected revenue (from income records)
     const totalRevenue = filteredIncome.reduce((sum, i) => sum + i.amount, 0)
     const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0)
     const profit = totalRevenue - totalExpenses
@@ -78,6 +79,11 @@ export default function AnalyticsPage() {
     const completedJobs = filteredJobs.filter(j => j.status === 'Completed' || j.status === 'Paid').length
     const scheduledJobs = filteredJobs.filter(j => j.status === 'Scheduled').length
     const avgJobValue = completedJobs > 0 ? totalRevenue / completedJobs : 0
+    
+    // Billed revenue (from completed/paid jobs)
+    const billedRevenue = filteredJobs
+      .filter(j => j.status === 'Completed' || j.status === 'Paid' || j.status === 'Invoiced')
+      .reduce((sum, j) => sum + j.price, 0)
 
     // Previous period comparison
     const now = new Date()
@@ -110,7 +116,7 @@ export default function AnalyticsPage() {
     const unpaidTotal = unpaidInvoices.reduce((sum, i) => sum + (i.total - i.amountPaid), 0)
     const overdueCount = invoices.filter(i => i.status === 'overdue').length
 
-    return { totalRevenue, totalExpenses, profit, profitMargin, completedJobs, scheduledJobs, avgJobValue, revenueChange, unpaidTotal, unpaidInvoices: unpaidInvoices.length, overdueCount }
+    return { totalRevenue, billedRevenue, totalExpenses, profit, profitMargin, completedJobs, scheduledJobs, avgJobValue, revenueChange, unpaidTotal, unpaidInvoices: unpaidInvoices.length, overdueCount }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [income, expenses, jobs, invoices, period])
 
@@ -270,11 +276,11 @@ export default function AnalyticsPage() {
 
         {/* Key Metrics - Clean inline style */}
         <div className="border border-border rounded-lg overflow-hidden bg-card">
-          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-border">
-            {/* Revenue */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 divide-x divide-border">
+            {/* Collected Revenue */}
             <div className="p-4">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Revenue</span>
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Collected</span>
                 {metrics.revenueChange !== 0 && (
                   <span className={`flex items-center text-xs font-medium ${
                     metrics.revenueChange > 0 ? 'text-emerald-500' : 'text-red-500'
@@ -284,7 +290,32 @@ export default function AnalyticsPage() {
                   </span>
                 )}
               </div>
-              <p className="text-2xl font-semibold">{formatCurrency(metrics.totalRevenue)}</p>
+              <p className="text-2xl font-semibold text-emerald-600">{formatCurrency(metrics.totalRevenue)}</p>
+              {metrics.billedRevenue > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatCurrency(metrics.billedRevenue)} billed
+                </p>
+              )}
+            </div>
+
+            {/* Outstanding Balance */}
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Outstanding</span>
+                {metrics.overdueCount > 0 && (
+                  <span className="text-xs font-medium text-red-500">
+                    {metrics.overdueCount} overdue
+                  </span>
+                )}
+              </div>
+              <p className={`text-2xl font-semibold ${metrics.unpaidTotal > 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>
+                {formatCurrency(metrics.unpaidTotal)}
+              </p>
+              {metrics.unpaidInvoices > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {metrics.unpaidInvoices} invoice{metrics.unpaidInvoices > 1 ? 's' : ''} pending
+                </p>
+              )}
             </div>
 
             {/* Profit */}

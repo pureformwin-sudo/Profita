@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Plus, FileText, Send, Trash2, Eye, MoreHorizontal, DollarSign, Clock, CheckCircle, AlertCircle, Search, Link2, Sparkles, Receipt, ArrowRight, Download, Mail, Briefcase, XCircle, RefreshCw } from 'lucide-react'
+import { Plus, FileText, Send, Trash2, Eye, MoreHorizontal, DollarSign, Clock, CheckCircle, AlertCircle, Search, Link2, Sparkles, Receipt, ArrowRight, Download, Mail, Briefcase, XCircle, RefreshCw, CreditCard, Loader2, History } from 'lucide-react'
 import { LineItemEditor, TotalsSummary, type LineItem } from '@/components/line-item-editor'
 import { toast } from 'sonner'
 import { getInvoices, getEstimates, getCustomers, addInvoice, addEstimate, updateInvoice, updateEstimate, deleteInvoice, deleteEstimate, getNextInvoiceNumber, getNextEstimateNumber, getSettings, getJobs, convertEstimateToJob, createInvoiceFromJob, markInvoicePaid } from '@/lib/storage'
@@ -22,6 +22,8 @@ import { NotificationActionsDialog } from '@/components/notification-actions'
 import { cn } from '@/lib/utils'
 import { PaymentMethodDialog, PaymentMethodType } from '@/components/payment-method-dialog'
 import { notifyInvoiceCreated, notifyInvoicePaid, notifyEstimateCreated, notifyEstimateAccepted } from '@/lib/in-app-notifications'
+import { recordPayment, getPaymentsForInvoice, type PaymentMethod as NewPaymentMethod } from '@/lib/payments-storage'
+import { type Payment } from '@/lib/payments-types'
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -38,9 +40,20 @@ export default function InvoicesPage() {
   const [notificationInvoice, setNotificationInvoice] = useState<Invoice | null>(null)
   const [businessInfo, setBusinessInfo] = useState<{ name?: string; phone?: string; email?: string }>({})
   
-  // Payment method dialog state
+  // Payment method dialog state (legacy - kept for backwards compat)
   const [showPaymentDialog, setShowPaymentDialog] = useState(false)
   const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState<Invoice | null>(null)
+  
+  // Record Payment modal state (new Phase 4)
+  const [showRecordPayment, setShowRecordPayment] = useState(false)
+  const [recordPaymentInvoice, setRecordPaymentInvoice] = useState<Invoice | null>(null)
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState<NewPaymentMethod>('cash')
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
+  const [paymentReference, setPaymentReference] = useState('')
+  const [paymentNotes, setPaymentNotes] = useState('')
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false)
+  const [invoicePayments, setInvoicePayments] = useState<Payment[]>([])
 
   // Form state
   const [formCustomerId, setFormCustomerId] = useState('')
@@ -305,6 +318,71 @@ async function handleConvertToJob(estimate: Estimate) {
     setFormItems([{ id: '1', description: '', quantity: 1, unitPrice: 0, total: 0 }])
     setFormNotes('')
     setFormDueDate('')
+  }
+
+  // Open Record Payment modal
+  async function openRecordPaymentModal(invoice: Invoice) {
+    setRecordPaymentInvoice(invoice)
+    const balance = invoice.total - invoice.amountPaid
+    setPaymentAmount(balance.toFixed(2))
+    setPaymentMethod('cash')
+    setPaymentDate(new Date().toISOString().split('T')[0])
+    setPaymentReference('')
+    setPaymentNotes('')
+    
+    // Load existing payments for this invoice
+    const payments = await getPaymentsForInvoice(invoice.id)
+    setInvoicePayments(payments)
+    
+    setShowRecordPayment(true)
+  }
+
+  // Handle recording a payment
+  async function handleRecordPayment() {
+    if (!recordPaymentInvoice) return
+    
+    const amount = parseFloat(paymentAmount)
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Please enter a valid payment amount')
+      return
+    }
+    
+    const balance = recordPaymentInvoice.total - recordPaymentInvoice.amountPaid
+    if (amount > balance) {
+      toast.error(`Payment amount cannot exceed balance due ($${balance.toFixed(2)})`)
+      return
+    }
+    
+    setIsRecordingPayment(true)
+    
+    const result = await recordPayment({
+      invoiceId: recordPaymentInvoice.id,
+      jobId: recordPaymentInvoice.jobId || undefined,
+      customerId: recordPaymentInvoice.customerId,
+      amount,
+      paymentMethod,
+      paymentDate,
+      referenceNumber: paymentReference || undefined,
+      notes: paymentNotes || undefined,
+    })
+    
+    setIsRecordingPayment(false)
+    
+    if (result.success) {
+      const customer = customers.find(c => c.id === recordPaymentInvoice.customerId)
+      if (customer && result.invoiceFullyPaid) {
+        notifyInvoicePaid(
+          { id: recordPaymentInvoice.id, invoiceNumber: recordPaymentInvoice.invoiceNumber, total: recordPaymentInvoice.total, customerId: recordPaymentInvoice.customerId },
+          customer.name
+        )
+      }
+      toast.success(result.invoiceFullyPaid ? 'Invoice fully paid!' : 'Payment recorded successfully!')
+      setShowRecordPayment(false)
+      setSelectedInvoice(null)
+      loadData()
+    } else {
+      toast.error(result.error || 'Failed to record payment')
+    }
   }
 
   function getStatusColor(status: InvoiceStatus | EstimateStatus) {
@@ -939,9 +1017,15 @@ async function handleConvertToJob(estimate: Estimate) {
                       }} className="flex-1">
                         <Link2 className="h-4 w-4 mr-2" /> Copy Link
                       </Button>
-<Button onClick={() => openPaymentDialog(selectedInvoice)} className="flex-1">
-  <DollarSign className="h-4 w-4 mr-2" /> Mark as Paid
-  </Button>
+                      <Button onClick={() => openRecordPaymentModal(selectedInvoice)} className="flex-1 bg-emerald-600 hover:bg-emerald-700">
+                        <CreditCard className="h-4 w-4 mr-2" /> Record Payment
+                      </Button>
+                    </div>
+                  )}
+                  {selectedInvoice.status === 'paid' && (
+                    <div className="text-center text-emerald-600 font-medium flex items-center justify-center gap-2">
+                      <CheckCircle className="h-5 w-5" />
+                      Invoice Fully Paid
                     </div>
                   )}
                 </DialogFooter>
@@ -1096,7 +1180,7 @@ async function handleConvertToJob(estimate: Estimate) {
           />
         )}
 
-        {/* Payment Method Dialog */}
+        {/* Payment Method Dialog (legacy) */}
         <PaymentMethodDialog
           open={showPaymentDialog}
           onOpenChange={setShowPaymentDialog}
@@ -1104,6 +1188,146 @@ async function handleConvertToJob(estimate: Estimate) {
           invoiceNumber={invoiceToMarkPaid?.invoiceNumber}
           amount={invoiceToMarkPaid?.total}
         />
+
+        {/* Record Payment Dialog (Phase 4) */}
+        <Dialog open={showRecordPayment} onOpenChange={setShowRecordPayment}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-emerald-600" />
+                Record Payment
+              </DialogTitle>
+              <DialogDescription>
+                {recordPaymentInvoice && (
+                  <span>
+                    Invoice {recordPaymentInvoice.invoiceNumber} - Balance due: ${(recordPaymentInvoice.total - recordPaymentInvoice.amountPaid).toFixed(2)}
+                  </span>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 py-4">
+              {/* Amount */}
+              <div className="space-y-2">
+                <Label htmlFor="payment-amount">Payment Amount *</Label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="payment-amount"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    className="pl-9"
+                    placeholder="0.00"
+                  />
+                </div>
+                {recordPaymentInvoice && parseFloat(paymentAmount) < (recordPaymentInvoice.total - recordPaymentInvoice.amountPaid) && (
+                  <p className="text-xs text-amber-600">This is a partial payment. Remaining balance will be ${((recordPaymentInvoice.total - recordPaymentInvoice.amountPaid) - parseFloat(paymentAmount || '0')).toFixed(2)}</p>
+                )}
+              </div>
+              
+              {/* Payment Method */}
+              <div className="space-y-2">
+                <Label>Payment Method</Label>
+                <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as NewPaymentMethod)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="check">Check</SelectItem>
+                    <SelectItem value="card">Card</SelectItem>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="venmo">Venmo</SelectItem>
+                    <SelectItem value="zelle">Zelle</SelectItem>
+                    <SelectItem value="stripe">Stripe</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Payment Date */}
+              <div className="space-y-2">
+                <Label htmlFor="payment-date">Payment Date</Label>
+                <Input
+                  id="payment-date"
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                />
+              </div>
+              
+              {/* Reference Number */}
+              <div className="space-y-2">
+                <Label htmlFor="payment-ref">Reference Number (Optional)</Label>
+                <Input
+                  id="payment-ref"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  placeholder="Check #, transaction ID, etc."
+                />
+              </div>
+              
+              {/* Notes */}
+              <div className="space-y-2">
+                <Label htmlFor="payment-notes">Notes (Optional)</Label>
+                <Textarea
+                  id="payment-notes"
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  placeholder="Additional payment details..."
+                  rows={2}
+                />
+              </div>
+              
+              {/* Payment History */}
+              {invoicePayments.length > 0 && (
+                <div className="border-t pt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <History className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Payment History</span>
+                  </div>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {invoicePayments.map((payment) => (
+                      <div key={payment.id} className="flex justify-between items-center text-sm p-2 bg-muted/30 rounded">
+                        <div>
+                          <span className="font-medium">${payment.amount.toFixed(2)}</span>
+                          <span className="text-muted-foreground ml-2">via {payment.paymentMethod}</span>
+                        </div>
+                        <span className="text-muted-foreground text-xs">{formatDate(payment.paymentDate)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowRecordPayment(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleRecordPayment} 
+                disabled={isRecordingPayment || !paymentAmount}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
+                {isRecordingPayment ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Recording...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Record Payment
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppShell>
   )

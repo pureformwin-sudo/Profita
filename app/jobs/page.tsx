@@ -507,6 +507,12 @@ const handleDeleteJob = async (id: string) => {
   const totalRevenue = filteredJobs.reduce((sum, j) => sum + j.price, 0)
   const totalExpenses = filteredJobs.reduce((sum, j) => sum + (j.expenses || 0), 0)
   const totalProfit = totalRevenue - totalExpenses
+  
+  // Calculate collected revenue from income records linked to filtered jobs
+  const filteredJobIds = new Set(filteredJobs.map(j => j.id))
+  const collectedRevenue = incomes
+    .filter(i => i.jobId && filteredJobIds.has(i.jobId))
+    .reduce((sum, i) => sum + i.amount, 0)
 
   return (
     <AppShell>
@@ -830,9 +836,15 @@ const handleDeleteJob = async (id: string) => {
             <p className="text-sm text-muted-foreground mt-1">
               <span className="font-medium text-foreground">{jobs.length}</span> total
               <span className="mx-2 text-border">|</span>
-              <span className="text-emerald-500 font-medium">${totalRevenue.toLocaleString()}</span> revenue
+              <span className="text-emerald-500 font-medium">${totalRevenue.toLocaleString()}</span> billed
+              {collectedRevenue > 0 && (
+                <>
+                  <span className="mx-2 text-border">|</span>
+                  <span className="text-emerald-600 font-medium">${collectedRevenue.toLocaleString()}</span> collected
+                </>
+              )}
               <span className="mx-2 text-border">|</span>
-              <span className="text-emerald-500 font-medium">${totalProfit.toLocaleString()}</span> profit
+              <span className={`font-medium ${totalProfit >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>${totalProfit.toLocaleString()}</span> profit
             </p>
           </div>
           <Button onClick={openNewJobPanel} size="sm" className="gap-2 shrink-0">
