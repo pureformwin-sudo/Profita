@@ -521,17 +521,19 @@ export default function CalendarPage() {
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold truncate">{job.customerName}</p>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              {job.startTime && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {(() => {
+                              <span className="flex items-center gap-1 flex-shrink-0">
+                                <Clock className="h-3 w-3" />
+                                {job.startTime ? (
+                                  (() => {
                                     const [h, m] = job.startTime!.split(':').map(Number)
                                     const period = h >= 12 ? 'PM' : 'AM'
                                     const hour12 = h % 12 || 12
                                     return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
-                                  })()}
-                                </span>
-                              )}
+                                  })()
+                                ) : (
+                                  <span className="italic text-muted-foreground/70">No time</span>
+                                )}
+                              </span>
                               <span className="truncate">{job.customerAddress || job.jobType}</span>
                             </div>
                           </div>
@@ -610,14 +612,26 @@ export default function CalendarPage() {
                             <div
                               key={job.id}
                               className={cn(
-                                "text-xs px-2 py-1 rounded truncate text-white cursor-pointer transition-transform hover:scale-[1.02] font-medium",
+                                "text-xs px-2 py-1.5 rounded text-white cursor-pointer transition-transform hover:scale-[1.02] font-medium",
                                 job.status === 'Scheduled' && "bg-gradient-to-r from-blue-500 to-blue-600",
                                 job.status === 'Completed' && "bg-gradient-to-r from-amber-500 to-amber-600",
                                 job.status === 'Paid' && "bg-gradient-to-r from-emerald-500 to-emerald-600"
                               )}
                               onClick={(e) => handleJobClick(job, e)}
                             >
-                              {job.customerName}
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="truncate">{job.customerName}</span>
+                                {job.startTime && (
+                                  <span className="text-[10px] text-white/80 flex-shrink-0">
+                                    {(() => {
+                                      const [h, m] = job.startTime!.split(':').map(Number)
+                                      const period = h >= 12 ? 'PM' : 'AM'
+                                      const hour12 = h % 12 || 12
+                                      return `${hour12}${m > 0 ? ':' + m.toString().padStart(2, '0') : ''}${period}`
+                                    })()}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -686,17 +700,19 @@ export default function CalendarPage() {
                               <div className="min-w-0 flex-1">
                                 <p className="font-semibold truncate">{job.customerName}</p>
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  {job.startTime && (
-                                    <span className="flex items-center gap-1">
-                                      <Clock className="h-3 w-3" />
-                                      {(() => {
+                                  <span className="flex items-center gap-1 flex-shrink-0">
+                                    <Clock className="h-3 w-3" />
+                                    {job.startTime ? (
+                                      (() => {
                                         const [h, m] = job.startTime!.split(':').map(Number)
                                         const period = h >= 12 ? 'PM' : 'AM'
                                         const hour12 = h % 12 || 12
                                         return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
-                                      })()}
-                                    </span>
-                                  )}
+                                      })()
+                                    ) : (
+                                      <span className="italic text-muted-foreground/70">No time</span>
+                                    )}
+                                  </span>
                                   <span>{job.jobType}</span>
                                 </div>
                               </div>
@@ -751,7 +767,20 @@ export default function CalendarPage() {
                               onClick={(e) => handleJobClick(job, e)}
                             >
                               <div className="font-semibold truncate">{job.customerName}</div>
-                              <div className="text-white/80 text-[10px] mt-0.5">{job.jobType}</div>
+                              <div className="flex items-center gap-1.5 text-white/80 text-[10px] mt-0.5">
+                                {job.startTime && (
+                                  <span className="flex items-center gap-0.5">
+                                    <Clock className="h-2.5 w-2.5" />
+                                    {(() => {
+                                      const [h, m] = job.startTime!.split(':').map(Number)
+                                      const period = h >= 12 ? 'PM' : 'AM'
+                                      const hour12 = h % 12 || 12
+                                      return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
+                                    })()}
+                                  </span>
+                                )}
+                                <span>{job.jobType}</span>
+                              </div>
                               <div className="font-bold mt-1">{formatCurrency(job.price)}</div>
                             </div>
                           ))}
@@ -893,9 +922,9 @@ export default function CalendarPage() {
                     <CalendarIcon className="h-4 w-4 text-muted-foreground" />
                     <span>{new Date(selectedJob.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                   </div>
-                  {selectedJob.startTime && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex items-center gap-2 text-sm">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    {selectedJob.startTime ? (
                       <span>
                         {(() => {
                           const [h, m] = selectedJob.startTime!.split(':').map(Number)
@@ -915,8 +944,10 @@ export default function CalendarPage() {
                           </>
                         )}
                       </span>
-                    </div>
-                  )}
+                    ) : (
+                      <span className="text-muted-foreground italic">No time set</span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Briefcase className="h-4 w-4 text-muted-foreground" />
                     <span>{selectedJob.jobType}</span>
