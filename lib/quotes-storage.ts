@@ -6,6 +6,32 @@ import type { Quote, QuoteStatus } from '@/lib/quotes-types'
 // Re-export types for consumers (types are allowed in 'use server' files)
 export type { Quote, QuoteItem, QuoteStatus } from '@/lib/quotes-types'
 
+// Get the current user's company ID (server-side)
+async function getUserCompanyId(): Promise<string | null> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  // First check if user owns a company
+  const { data: ownedCompany } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('owner_user_id', user.id)
+    .maybeSingle()
+
+  if (ownedCompany) return ownedCompany.id
+
+  // Check if user is a member of a company
+  const { data: membership } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .maybeSingle()
+
+  return membership?.company_id || null
+}
+
 // =============================================================================
 // Quotes CRUD
 // =============================================================================
@@ -79,6 +105,7 @@ export async function createQuote(input: {
   notes?: string
 }): Promise<{ data: Quote | null; error: string | null }> {
   const supabase = await createClient()
+  const companyId = await getUserCompanyId()
 
   // Calculate totals
   const subtotal = (input.items || []).reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
@@ -90,6 +117,7 @@ export async function createQuote(input: {
     .from('quotes')
     .insert({
       user_id: input.ownerUserId,
+      company_id: companyId,
       rep_employee_id: input.repEmployeeId,
       lead_id: input.leadId || null,
       customer_id: input.customerId || null,
@@ -117,6 +145,7 @@ export async function createQuote(input: {
   if (input.items && input.items.length > 0) {
     const itemsToInsert = input.items.map((item, idx) => ({
       user_id: input.ownerUserId,
+      company_id: companyId,
       quote_id: data.id,
       description: item.description,
       quantity: item.quantity,
