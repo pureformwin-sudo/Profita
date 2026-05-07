@@ -1089,7 +1089,7 @@ onClick={() => openJobDetail(job)}
   {/* Desktop: Price column */}
                   <div className="hidden lg:block text-right">
                     <span className="font-semibold">${job.price.toLocaleString()}</span>
-                    {job.expenses > 0 && (
+                    {(job.expenses ?? 0) > 0 && (
                       <p className="text-xs text-muted-foreground">-${job.expenses}</p>
                     )}
                   </div>

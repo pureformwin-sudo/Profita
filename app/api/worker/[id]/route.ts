@@ -57,7 +57,7 @@ export async function GET(
     const jobs = (jobWorkers || [])
       .filter(jw => jw.jobs)
       .map(jw => {
-        const job = jw.jobs as { 
+        const job = jw.jobs as unknown as { 
           id: string; date: string; job_type: string; status: string; 
           price: number; notes?: string;
           customers: { name: string; address?: string; phone?: string } | null

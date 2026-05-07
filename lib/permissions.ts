@@ -423,7 +423,7 @@ export async function getCompanyMembers(): Promise<CompanyMember[]> {
     return []
   }
 
-  return (data || []).map(m => ({
+  return (data || []).map((m: any) => ({
     id: m.id,
     companyId: m.company_id,
     userId: m.user_id,

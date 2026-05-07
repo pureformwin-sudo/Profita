@@ -118,7 +118,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     // 1. They have a membership with role 'owner', OR
     // 2. They own the company (company.ownerUserId === user.id)
     const isOwner = role === 'owner' || 
-      (company && user && company.ownerUserId === user.id)
+      (company !== null && user !== null && company.ownerUserId === user.id)
     const isAdmin = isOwner || role === 'admin'
     const permissions = membership ? getEffectivePermissions(membership) : []
 

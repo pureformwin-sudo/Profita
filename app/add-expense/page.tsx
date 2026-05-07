@@ -46,6 +46,7 @@ export default function AddExpensePage() {
       category: formData.category,
       description: formData.description,
       paymentMethod: formData.paymentMethod,
+      recurrence: 'none',
       notes: formData.notes,
     })
 

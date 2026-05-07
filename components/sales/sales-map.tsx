@@ -20,11 +20,6 @@ const STATUS_CONFIG: Record<LeadStatus, { color: string; iconPath: string; label
     iconPath: 'M12 8v4l2 2M12 5a7 7 0 1 0 0 14a7 7 0 0 0 0-14z',
     label: 'Not Home' 
   },
-  callback: { 
-    color: '#8b5cf6', 
-    iconPath: 'M3 12a9 9 0 1 0 9-9M3 12h9M12 3v9',
-    label: 'Callback' 
-  },
   interested: { 
     color: '#3b82f6', 
     iconPath: 'M12 4l2.5 5 5.5.8-4 3.9.9 5.3-4.9-2.6-4.9 2.6.9-5.3-4-3.9 5.5-.8z',
@@ -40,11 +35,6 @@ const STATUS_CONFIG: Record<LeadStatus, { color: string; iconPath: string; label
     iconPath: 'M4 8h16M4 8v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M4 8V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2M8 4v4M16 4v4',
     label: 'Booked' 
   },
-  follow_up: { 
-    color: '#a855f7', 
-    iconPath: 'M22 12h-4l-3 9L9 3l-3 9H2',
-    label: 'Follow Up' 
-  },
   converted: { 
     color: '#10b981', 
     iconPath: 'M5 12l5 5L20 7',
@@ -59,11 +49,6 @@ const STATUS_CONFIG: Record<LeadStatus, { color: string; iconPath: string; label
     color: '#dc2626', 
     iconPath: 'M18 6L6 18M6 6l12 12',
     label: 'Lost' 
-  },
-  pending: { 
-    color: '#eab308', 
-    iconPath: 'M12 12m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M7 12m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M17 12m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0',
-    label: 'Pending' 
   },
 }
 
@@ -464,7 +449,7 @@ export function SalesMap({
     if (lead?.lat && lead?.lng) {
       // Check if marker is already reasonably in view
       const bounds = map.current.getBounds()
-      const inView = bounds.contains([lead.lng, lead.lat])
+      const inView = bounds?.contains([lead.lng, lead.lat]) ?? false
       
       // Use easeTo with padding for natural feel
       // Bottom padding accounts for bottom sheet (~280px on mobile)

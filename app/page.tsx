@@ -11,7 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { getIncome, getExpenses, getPendingIncome, getUpcomingExpenses, getCustomers, getJobs, getEmployees, getInvoices, getEstimates, markPendingIncomeReceived, markUpcomingExpensePaid, addPendingIncome, addUpcomingExpense, transferMoney, getMoneyLocations, updateMoneyLocations, MoneyLocations, getMoneyMonths, getCurrentMonthKey, formatMonthDisplay } from '@/lib/storage'
-import { Income, Expense, PendingIncome, UpcomingExpense, Customer, Job, Employee, Estimate } from '@/lib/types'
+import { Income, Expense, PendingIncome, UpcomingExpense, Customer, Job, Employee, Estimate, PaymentSource, PendingStatus, ExpenseCategory, ExpenseStatus } from '@/lib/types'
 import { formatDate } from '@/lib/utils-finance'
 import { InsightsPanel } from '@/components/ai/insights-panel'
 import { AskAIInlineButton } from '@/components/ai/ask-ai-floating'
@@ -226,7 +226,7 @@ export default function DashboardPage() {
   const todayStr = new Date().toISOString().split('T')[0]
   const todayJobs = jobs.filter(j => j.date === todayStr)
   const todayScheduled = todayJobs.filter(j => j.status === 'Scheduled')
-  const todayInProgress = todayJobs.filter(j => j.status === 'in_progress')
+  const todayInProgress = todayJobs.filter(j => j.status === 'In progress')
   const todayCompleted = todayJobs.filter(j => j.status === 'Completed' || j.status === 'Paid')
   const todayRevenue = todayCompleted.reduce((sum, j) => sum + j.price, 0)
   const todayPotential = todayScheduled.reduce((sum, j) => sum + j.price, 0)
@@ -705,10 +705,10 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-3 min-w-0">
                           <div className={cn(
                             'h-8 w-8 rounded-full flex items-center justify-center shrink-0',
-                            job.status === 'in_progress' ? 'bg-blue-500/20' : job.status === 'completed' ? 'bg-green-500/20' : 'bg-amber-500/20'
+                            job.status === 'In progress' ? 'bg-blue-500/20' : job.status === 'Completed' ? 'bg-green-500/20' : 'bg-amber-500/20'
                           )}>
-                            {job.status === 'in_progress' ? <Play className="h-4 w-4 text-blue-500" /> : 
-                             job.status === 'completed' ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : 
+                            {job.status === 'In progress' ? <Play className="h-4 w-4 text-blue-500" /> : 
+                             job.status === 'Completed' ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : 
                              <Clock className="h-4 w-4 text-amber-500" />}
                           </div>
                           <div className="min-w-0">
@@ -799,9 +799,9 @@ export default function DashboardPage() {
                           const result = await addPendingIncome({
                             clientName: formData.get('clientName') as string,
                             amount: parseFloat(formData.get('amount') as string),
-                            source: formData.get('source') as string,
+                            source: formData.get('source') as PaymentSource,
                             expectedDate: formData.get('expectedDate') as string,
-                            status: 'pending',
+                            status: 'Pending' as PendingStatus,
                           })
                           if (result) {
                             toast.success('Expected income added')
@@ -924,9 +924,9 @@ export default function DashboardPage() {
                           const result = await addUpcomingExpense({
                             name: formData.get('name') as string,
                             amount: parseFloat(formData.get('amount') as string),
-                            category: formData.get('category') as string,
+                            category: formData.get('category') as ExpenseCategory,
                             dueDate: formData.get('dueDate') as string,
-                            status: 'pending',
+                            status: 'Unpaid' as ExpenseStatus,
                           })
                           if (result) {
                             toast.success('Bill added')
@@ -1047,9 +1047,9 @@ export default function DashboardPage() {
                       const jobWorkersList = job.job_workers || []
                       return jobWorkersList.some(jw => jw.employee_id === worker.id)
                     })
-                    const inProgress = workerJobs.find(j => j.status === 'in_progress')
-                    const scheduled = workerJobs.filter(j => j.status === 'scheduled').length
-                    const completed = workerJobs.filter(j => j.status === 'completed').length
+                    const inProgress = workerJobs.find(j => j.status === 'In progress')
+                    const scheduled = workerJobs.filter(j => j.status === 'Scheduled').length
+                    const completed = workerJobs.filter(j => j.status === 'Completed').length
                     const currentCustomer = inProgress ? customers.find(c => c.id === inProgress.customerId) : null
 
                     return (

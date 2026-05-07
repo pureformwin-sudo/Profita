@@ -116,6 +116,7 @@ export interface BusinessProfile {
   businessName: string
   ownerName: string
   phone: string
+  email?: string
   serviceArea: string
   weeklyGoal: number
   taxRate: number

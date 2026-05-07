@@ -84,7 +84,13 @@ export default function PayInvoicePage() {
   }, [invoiceId])
 
   const startCheckout = useCallback(
-    () => createInvoicePaymentSession(invoiceId),
+    async () => {
+      const clientSecret = await createInvoicePaymentSession(invoiceId)
+      if (!clientSecret) {
+        throw new Error('Failed to create checkout session')
+      }
+      return clientSecret
+    },
     [invoiceId]
   )
 
@@ -196,7 +202,7 @@ export default function PayInvoicePage() {
               <EmbeddedCheckoutProvider
                 stripe={stripePromise}
                 options={{ 
-                  clientSecret: startCheckout,
+                  fetchClientSecret: startCheckout,
                   onComplete: handleCheckoutComplete,
                 }}
               >

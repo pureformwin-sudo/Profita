@@ -25,7 +25,8 @@ export async function createInvoicePaymentSession(invoiceId: string) {
 
   // Create Checkout Session
   const session = await stripe.checkout.sessions.create({
-    ui_mode: 'embedded',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ui_mode: 'embedded' as any,
     redirect_on_completion: 'never',
     line_items: [
       {

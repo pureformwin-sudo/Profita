@@ -75,8 +75,8 @@ export default function AnalyticsPage() {
     const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0)
     const profit = totalRevenue - totalExpenses
     const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0
-    const completedJobs = filteredJobs.filter(j => j.status === 'completed' || j.status === 'Completed' || j.status === 'Paid').length
-    const scheduledJobs = filteredJobs.filter(j => j.status === 'scheduled' || j.status === 'Scheduled').length
+    const completedJobs = filteredJobs.filter(j => j.status === 'Completed' || j.status === 'Paid').length
+    const scheduledJobs = filteredJobs.filter(j => j.status === 'Scheduled').length
     const avgJobValue = completedJobs > 0 ? totalRevenue / completedJobs : 0
 
     // Previous period comparison
@@ -183,7 +183,7 @@ export default function AnalyticsPage() {
   // Job type breakdown
   const jobTypeData = useMemo(() => {
     const filteredJobs = filterByPeriod(jobs).filter(j => 
-      j.status === 'completed' || j.status === 'Completed' || j.status === 'Paid'
+      j.status === 'Completed' || j.status === 'Paid'
     )
     const typeMap: Record<string, number> = {}
     
@@ -211,7 +211,7 @@ export default function AnalyticsPage() {
     const customerRevenue: Record<string, { name: string; revenue: number; jobs: number }> = {}
     
     jobs.forEach(job => {
-      if (job.status === 'completed' || job.status === 'Completed' || job.status === 'Paid') {
+      if (job.status === 'Completed' || job.status === 'Paid') {
         const customer = customers.find(c => c.id === job.customerId)
         if (customer) {
           if (!customerRevenue[customer.id]) {

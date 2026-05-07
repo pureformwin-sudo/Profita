@@ -984,12 +984,12 @@ function LeadDrawer({
 const ADD_LEAD_STATUSES: { status: LeadStatus; label: string; color: string }[] = [
   { status: 'knocked', label: 'Lead', color: 'bg-amber-500' },
   { status: 'not_home', label: 'Not Home', color: 'bg-zinc-500' },
-  { status: 'follow_up', label: 'Follow Up', color: 'bg-violet-500' },
+  { status: 'interested', label: 'Interested', color: 'bg-violet-500' },
   { status: 'booked', label: 'Appt', color: 'bg-cyan-500' },
   { status: 'quoted', label: 'Quote', color: 'bg-orange-500' },
-  { status: 'pending', label: 'Pending', color: 'bg-yellow-500' },
   { status: 'converted', label: 'Customer', color: 'bg-emerald-500' },
   { status: 'not_interested', label: 'No Interest', color: 'bg-red-500' },
+  { status: 'lost', label: 'Lost', color: 'bg-zinc-600' },
 ]
 
 // Service options

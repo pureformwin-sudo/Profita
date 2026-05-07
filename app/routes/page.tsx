@@ -7,23 +7,39 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Calendar, MapPin, Clock, Navigation, ArrowRight, GripVertical, ExternalLink, RotateCcw } from 'lucide-react'
-import { getJobs } from '@/lib/storage'
-import type { Job } from '@/lib/types'
+import { getJobs, getCustomers } from '@/lib/storage'
+import type { Job, Customer } from '@/lib/types'
+
+interface JobWithCustomer extends Job {
+  customerName?: string
+  customerAddress?: string
+}
 
 export default function RoutesPage() {
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [jobs, setJobs] = useState<JobWithCustomer[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
-  const [optimizedRoute, setOptimizedRoute] = useState<Job[]>([])
+  const [optimizedRoute, setOptimizedRoute] = useState<JobWithCustomer[]>([])
   const [startAddress, setStartAddress] = useState('')
 
   useEffect(() => {
-    loadJobs()
+    loadData()
   }, [])
 
-  async function loadJobs() {
-    const data = await getJobs()
-    setJobs(data)
+  async function loadData() {
+    const [jobsData, customersData] = await Promise.all([getJobs(), getCustomers()])
+    
+    // Enrich jobs with customer data
+    const enrichedJobs = jobsData.map(job => {
+      const customer = customersData.find(c => c.id === job.customerId)
+      return {
+        ...job,
+        customerName: customer?.name || 'Unknown Customer',
+        customerAddress: customer?.address || '',
+      }
+    })
+    
+    setJobs(enrichedJobs)
     setIsLoading(false)
   }
 
@@ -31,8 +47,8 @@ export default function RoutesPage() {
   const todaysJobs = useMemo(() => {
     return jobs.filter(job => 
       job.date === selectedDate && 
-      job.address && 
-      (job.status === 'Scheduled' || job.status === 'In Progress')
+      job.customerAddress && 
+      (job.status === 'Scheduled' || job.status === 'In progress')
     )
   }, [jobs, selectedDate])
 
@@ -41,16 +57,16 @@ export default function RoutesPage() {
     if (todaysJobs.length === 0) return
     
     const unvisited = [...todaysJobs]
-    const route: Job[] = []
+    const route: JobWithCustomer[] = []
     
     // If we have time-specific jobs, sort by time first
-    const jobsWithTime = unvisited.filter(j => j.time).sort((a, b) => {
-      const timeA = a.time || '00:00'
-      const timeB = b.time || '00:00'
+    const jobsWithTime = unvisited.filter(j => j.startTime).sort((a, b) => {
+      const timeA = a.startTime || '00:00'
+      const timeB = b.startTime || '00:00'
       return timeA.localeCompare(timeB)
     })
     
-    const jobsWithoutTime = unvisited.filter(j => !j.time)
+    const jobsWithoutTime = unvisited.filter(j => !j.startTime)
     
     // Add time-specific jobs first in order
     route.push(...jobsWithTime)
@@ -66,8 +82,8 @@ export default function RoutesPage() {
     if (optimizedRoute.length === 0) return ''
     
     const addresses = optimizedRoute
-      .filter(j => j.address)
-      .map(j => encodeURIComponent(j.address!))
+      .filter(j => j.customerAddress)
+      .map(j => encodeURIComponent(j.customerAddress!))
     
     if (addresses.length === 0) return ''
     
@@ -97,6 +113,15 @@ export default function RoutesPage() {
     
     [newRoute[index], newRoute[newIndex]] = [newRoute[newIndex], newRoute[index]]
     setOptimizedRoute(newRoute)
+  }
+
+  // Format time for display
+  function formatTime(time?: string) {
+    if (!time) return null
+    const [h, m] = time.split(':').map(Number)
+    const period = h >= 12 ? 'PM' : 'AM'
+    const hour12 = h % 12 || 12
+    return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
   }
 
   if (isLoading) {
@@ -169,7 +194,7 @@ export default function RoutesPage() {
               <div className="text-center py-8 text-muted-foreground">
                 <Navigation className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>No jobs with addresses scheduled for this date.</p>
-                <p className="text-sm mt-1">Add addresses to your jobs to plan routes.</p>
+                <p className="text-sm mt-1">Add addresses to your customers to plan routes.</p>
               </div>
             ) : optimizedRoute.length === 0 ? (
               <div className="space-y-3">
@@ -182,17 +207,17 @@ export default function RoutesPage() {
                       {index + 1}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{job.title}</p>
+                      <p className="font-medium truncate">{job.customerName} - {job.jobType}</p>
                       <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                        {job.time && (
+                        {job.startTime && (
                           <span className="flex items-center gap-1">
                             <Clock className="h-3.5 w-3.5" />
-                            {job.time}
+                            {formatTime(job.startTime)}
                           </span>
                         )}
                         <span className="flex items-center gap-1 truncate">
                           <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
-                          <span className="truncate">{job.address}</span>
+                          <span className="truncate">{job.customerAddress}</span>
                         </span>
                       </div>
                     </div>
@@ -240,21 +265,18 @@ export default function RoutesPage() {
                         {index + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{job.title}</p>
+                        <p className="font-medium truncate">{job.customerName} - {job.jobType}</p>
                         <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                          {job.customerName && (
-                            <span>{job.customerName}</span>
-                          )}
-                          {job.time && (
+                          {job.startTime && (
                             <span className="flex items-center gap-1">
                               <Clock className="h-3.5 w-3.5" />
-                              {job.time}
+                              {formatTime(job.startTime)}
                             </span>
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                           <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
-                          <span className="truncate">{job.address}</span>
+                          <span className="truncate">{job.customerAddress}</span>
                         </p>
                       </div>
                       <div className="flex flex-col gap-1">
@@ -302,19 +324,6 @@ export default function RoutesPage() {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Tips */}
-        <Card className="bg-muted/30">
-          <CardContent className="p-4">
-            <h3 className="font-medium mb-2">Tips</h3>
-            <ul className="text-sm text-muted-foreground space-y-1">
-              <li>• Add addresses to your jobs for route planning</li>
-              <li>• Jobs with specific times are prioritized in order</li>
-              <li>• You can manually reorder stops using the arrows</li>
-              <li>• Click &quot;Open in Maps&quot; for turn-by-turn navigation</li>
-            </ul>
           </CardContent>
         </Card>
       </div>

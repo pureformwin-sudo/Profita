@@ -98,16 +98,20 @@ export default function BookingsPage() {
       }
     }
 
-    // Create job from booking
+    // Create job from booking - only if we have a customer
+    if (!customerId) {
+      toast.error('Could not create customer')
+      return
+    }
+    
     await addJob({
-      title: booking.serviceType,
       customerId,
-      customerName: booking.customerName,
       date: booking.preferredDate,
-      time: booking.preferredTime,
+      startTime: booking.preferredTime || undefined,
+      jobType: (booking.serviceType || 'Service') as import('@/lib/types').JobType,
+      price: 0, // Price to be set later
       status: 'Scheduled',
-      address: booking.customerAddress,
-      notes: booking.notes,
+      notes: booking.notes || undefined,
     })
 
     // Update booking status

@@ -430,10 +430,10 @@ function TeamPageContent() {
                     return jw.some(j => j.employee_id === worker.id)
                   })
                   const todayJobs = workerJobs.filter(j => j.date === todayStr)
-                  if (todayJobs.some(j => j.status === 'in_progress')) working++
-                  else if (todayJobs.some(j => j.status === 'scheduled')) scheduled++
+                  if (todayJobs.some(j => j.status === 'In progress')) working++
+                  else if (todayJobs.some(j => j.status === 'Scheduled')) scheduled++
                   else idle++
-                  completedToday += todayJobs.filter(j => j.status === 'completed').length
+                  completedToday += todayJobs.filter(j => j.status === 'Completed').length
                 })
                 
                 return (
@@ -489,9 +489,9 @@ function TeamPageContent() {
                   })
                   const todayStr = new Date().toISOString().split('T')[0]
                   const todayJobs = workerJobs.filter(j => j.date === todayStr)
-                  const inProgress = todayJobs.find(j => j.status === 'in_progress')
-                  const scheduled = todayJobs.filter(j => j.status === 'scheduled')
-                  const completed = todayJobs.filter(j => j.status === 'completed')
+                  const inProgress = todayJobs.find(j => j.status === 'In progress')
+                  const scheduled = todayJobs.filter(j => j.status === 'Scheduled')
+                  const completed = todayJobs.filter(j => j.status === 'Completed')
                   
                   const currentCustomer = inProgress 
                     ? customers.find(c => c.id === inProgress.customerId)

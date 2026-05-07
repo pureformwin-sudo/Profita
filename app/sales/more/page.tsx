@@ -86,12 +86,12 @@ export default function MorePage() {
                     href={item.href}
                     className={cn(
                       'flex items-center gap-4 px-4 py-3.5 transition-colors active:bg-zinc-800',
-                      item.highlight && 'bg-emerald-500/5'
+                      'highlight' in item && item.highlight && 'bg-emerald-500/5'
                     )}
                   >
                     <div className={cn(
                       'h-10 w-10 rounded-xl flex items-center justify-center shrink-0',
-                      item.highlight 
+                      'highlight' in item && item.highlight 
                         ? 'bg-emerald-500/20 text-emerald-400'
                         : 'bg-zinc-800 text-zinc-400'
                     )}>
@@ -100,7 +100,7 @@ export default function MorePage() {
                     <div className="flex-1 min-w-0">
                       <p className={cn(
                         'text-sm font-semibold',
-                        item.highlight ? 'text-emerald-400' : 'text-white'
+                        'highlight' in item && item.highlight ? 'text-emerald-400' : 'text-white'
                       )}>
                         {item.label}
                       </p>
