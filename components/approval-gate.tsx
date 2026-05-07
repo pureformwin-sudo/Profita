@@ -12,7 +12,7 @@ interface ApprovalGateProps {
 
 // Pages that don't require approval (or have their own auth handling)
 // Note: '/' must be exact match, others use startsWith
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/pending', '/worker', '/book', '/pay', '/api', '/rep', '/sales', '/crew']
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/pending', '/worker', '/book', '/pay', '/api', '/rep', '/sales', '/crew', '/onboarding']
 
 type GateStatus = 'loading' | 'approved' | 'pending' | 'rejected' | 'no-auth'
 

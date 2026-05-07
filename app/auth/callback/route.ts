@@ -42,6 +42,18 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(`${origin}/pending-approval`)
       }
 
+      // Check if user is company owner and needs onboarding
+      const { data: company } = await supabase
+        .from('companies')
+        .select('onboarding_completed')
+        .eq('owner_user_id', data.user.id)
+        .maybeSingle()
+
+      // If company exists but onboarding not complete, redirect to onboarding
+      if (company && company.onboarding_completed === false) {
+        return NextResponse.redirect(`${origin}/onboarding`)
+      }
+
       return NextResponse.redirect(`${origin}${next}`)
     }
   }

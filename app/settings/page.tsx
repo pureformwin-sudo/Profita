@@ -24,11 +24,17 @@ import { Trash2, Download, Building2, MapPin, Target, Receipt, Shield, Users, Be
 import { useAuth } from '@/components/auth-provider'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { usePermissions } from '@/lib/permissions-context'
+import { hasPermission } from '@/lib/permissions'
 
 export default function SettingsPage() {
   const { user } = useAuth()
+  const { membership } = usePermissions()
   const [settings, setSettings] = useState<SettingsType | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  
+  // Check if user can access company settings
+  const canAccessCompanySettings = membership && hasPermission(membership, 'manage_settings')
   const [profile, setProfile] = useState<BusinessProfile>({
     businessName: '',
     ownerName: '',
@@ -150,6 +156,26 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <Users className="h-5 w-5 text-muted-foreground" />
+              </div>
+            </Link>
+          </section>
+        )}
+
+        {/* Company Settings - Owner/Admin only */}
+        {canAccessCompanySettings && (
+          <section className="mb-8">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">Company</h2>
+            <Link href="/settings/company">
+              <div className="rounded-xl border border-border bg-card p-5 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Building2 className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-medium">Company Settings</p>
+                    <p className="text-sm text-muted-foreground">Business profile, services, pricing, invoicing</p>
+                  </div>
+                </div>
               </div>
             </Link>
           </section>

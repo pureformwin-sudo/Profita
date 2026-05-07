@@ -51,6 +51,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { useOnboardingCheck } from '@/hooks/use-onboarding-check'
 
 interface Invoice {
   id: string
@@ -129,6 +130,9 @@ function StatCard({
 }
 
 export default function DashboardPage() {
+  // Check if user needs to complete onboarding (company owners only)
+  const { checking: checkingOnboarding, needsSetup } = useOnboardingCheck()
+  
   const [income, setIncome] = useState<Income[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [pendingIncome, setPendingIncome] = useState<PendingIncome[]>([])
@@ -142,6 +146,17 @@ export default function DashboardPage() {
   const [selectedMoneyMonth, setSelectedMoneyMonth] = useState<string>(getCurrentMonthKey())
   const [availableMonths, setAvailableMonths] = useState<string[]>([getCurrentMonthKey()])
   const [isLoading, setIsLoading] = useState(true)
+  
+  // If redirecting to onboarding, show loading
+  if (needsSetup) {
+    return (
+      <AppShell>
+        <div className="flex items-center justify-center min-h-[50vh]">
+          <div className="animate-pulse text-muted-foreground">Redirecting to setup...</div>
+        </div>
+      </AppShell>
+    )
+  }
 
   useEffect(() => {
     loadData()
