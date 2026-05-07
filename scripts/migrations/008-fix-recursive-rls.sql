@@ -544,40 +544,8 @@ USING (company_id IN (SELECT company_id FROM get_user_company_ids()) OR user_id 
 CREATE POLICY quotes_company_delete ON quotes FOR DELETE TO authenticated
 USING (company_id IN (SELECT company_id FROM get_user_company_ids()) OR user_id = auth.uid());
 
--- quote_items
-DROP POLICY IF EXISTS quote_items_company_select ON quote_items;
-DROP POLICY IF EXISTS quote_items_company_insert ON quote_items;
-DROP POLICY IF EXISTS quote_items_company_update ON quote_items;
-DROP POLICY IF EXISTS quote_items_company_delete ON quote_items;
-DROP POLICY IF EXISTS quote_items_all_own ON quote_items;
-
-CREATE POLICY quote_items_company_select ON quote_items FOR SELECT TO authenticated
-USING (
-  quote_id IN (
-    SELECT id FROM quotes WHERE company_id IN (SELECT company_id FROM get_user_company_ids()) OR user_id = auth.uid()
-  )
-);
-
-CREATE POLICY quote_items_company_insert ON quote_items FOR INSERT TO authenticated
-WITH CHECK (
-  quote_id IN (
-    SELECT id FROM quotes WHERE company_id IN (SELECT company_id FROM get_user_company_ids()) OR user_id = auth.uid()
-  )
-);
-
-CREATE POLICY quote_items_company_update ON quote_items FOR UPDATE TO authenticated
-USING (
-  quote_id IN (
-    SELECT id FROM quotes WHERE company_id IN (SELECT company_id FROM get_user_company_ids()) OR user_id = auth.uid()
-  )
-);
-
-CREATE POLICY quote_items_company_delete ON quote_items FOR DELETE TO authenticated
-USING (
-  quote_id IN (
-    SELECT id FROM quotes WHERE company_id IN (SELECT company_id FROM get_user_company_ids()) OR user_id = auth.uid()
-  )
-);
+-- quote_items - SKIPPED: table does not exist in this database
+-- If quote_items table is added later, add RLS policies for it
 
 -- sales_rep_stats
 DROP POLICY IF EXISTS sales_rep_stats_company_select ON sales_rep_stats;
