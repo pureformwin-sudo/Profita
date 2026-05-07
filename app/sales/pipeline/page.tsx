@@ -10,6 +10,8 @@ import {
   ArrowRight,
   ArrowLeft,
   MapPin,
+  UserCheck,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -334,6 +336,7 @@ function PipelineColumn({
                 </div>
               </div>
 
+              {/* Phone link */}
               {lead.phone && (
                 <a
                   href={`tel:${lead.phone}`}
@@ -341,6 +344,18 @@ function PipelineColumn({
                 >
                   <Phone className="h-3 w-3" />
                   {lead.phone}
+                </a>
+              )}
+
+              {/* Conversion indicator - show when lead has been converted to customer */}
+              {lead.converted_customer_id && (
+                <a
+                  href={`/customers?id=${lead.converted_customer_id}`}
+                  className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2 py-1 hover:bg-emerald-500/20 transition-colors"
+                >
+                  <UserCheck className="h-3 w-3" />
+                  <span>Customer Created</span>
+                  <ExternalLink className="h-3 w-3 ml-auto" />
                 </a>
               )}
 

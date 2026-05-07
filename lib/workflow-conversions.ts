@@ -35,6 +35,7 @@ export interface QuoteToEstimateResult extends ConversionResult {
 export interface BookingToJobResult extends ConversionResult {
   jobId?: string
   customerId?: string
+  alreadyConverted?: boolean
 }
 
 // =============================================================================

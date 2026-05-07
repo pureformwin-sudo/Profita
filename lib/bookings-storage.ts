@@ -57,8 +57,7 @@ export async function getBookings(): Promise<Booking[]> {
     .select(`
       *,
       leads:lead_id (name, phone),
-      customers:customer_id (name),
-      team_members:assigned_crew_id (name)
+      customers:customer_id (name)
     `)
     .order('scheduled_date', { ascending: true })
     .order('scheduled_time', { ascending: true })
@@ -73,7 +72,6 @@ export async function getBookings(): Promise<Booking[]> {
     lead_name: b.leads?.name,
     lead_phone: b.leads?.phone,
     customer_name: b.customers?.name,
-    crew_name: b.team_members?.name,
   }))
 }
 
