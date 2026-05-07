@@ -84,10 +84,13 @@ export async function addIncome(income: Omit<Income, 'id' | 'createdAt'>): Promi
   
   if (!user) return null
   
+  const companyId = await getUserCompanyId()
+  
   const { data, error } = await supabase
     .from('income')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       amount: income.amount,
       customer_name: income.customerName,
       job_type: income.jobType,
@@ -324,10 +327,13 @@ export async function addExpense(expense: Omit<Expense, 'id' | 'createdAt'>): Pr
   
   if (!user) return null
   
+  const companyId = await getUserCompanyId()
+  
   const { data, error } = await supabase
     .from('expenses')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       amount: expense.amount,
       category: expense.category,
       description: expense.description,
@@ -399,10 +405,13 @@ export async function addPendingIncome(income: Omit<PendingIncome, 'id' | 'creat
   
   if (!user) return null
   
+  const companyId = await getUserCompanyId()
+  
   const { data, error } = await supabase
     .from('pending_income')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       client_name: income.clientName,
       amount: income.amount,
       source: income.source,
@@ -447,6 +456,8 @@ export async function markPendingIncomeReceived(id: string, paymentMethod: strin
   const user = await getCachedUser()
   if (!user) return false
 
+  const companyId = await getUserCompanyId()
+
   // Get the pending income first
   const { data: pending, error: fetchError } = await supabase
     .from('pending_income')
@@ -461,6 +472,7 @@ export async function markPendingIncomeReceived(id: string, paymentMethod: strin
     .from('income')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       amount: pending.amount,
       job_type: pending.source || 'Other',
       customer_name: pending.client_name,
@@ -520,10 +532,13 @@ export async function addUpcomingExpense(expense: Omit<UpcomingExpense, 'id' | '
   
   if (!user) return null
   
+  const companyId = await getUserCompanyId()
+  
   const { data, error } = await supabase
     .from('upcoming_expenses')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       name: expense.name,
       amount: expense.amount,
       category: expense.category,
@@ -568,6 +583,8 @@ export async function markUpcomingExpensePaid(id: string, paymentMethod: string)
   const user = await getCachedUser()
   if (!user) return false
 
+  const companyId = await getUserCompanyId()
+
   // Get the upcoming expense first
   const { data: upcoming, error: fetchError } = await supabase
     .from('upcoming_expenses')
@@ -582,6 +599,7 @@ export async function markUpcomingExpensePaid(id: string, paymentMethod: string)
     .from('expenses')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       amount: upcoming.amount,
       category: upcoming.category || 'Other',
       vendor: upcoming.name,
@@ -635,10 +653,13 @@ export async function saveSettings(settings: Settings): Promise<boolean> {
   
   if (!user) return false
   
+  const companyId = await getUserCompanyId()
+  
   const { error } = await supabase
     .from('settings')
     .upsert({
       user_id: user.id,
+      company_id: companyId,
       profit_allocation: settings.profitAllocation,
       expense_categories: settings.expenseCategories,
       dark_mode: settings.darkMode,
@@ -1335,6 +1356,7 @@ export async function addEmployee(employee: Omit<Employee, 'id' | 'createdAt'>):
   const user = await getCachedUser()
   if (!user) return null
 
+  const companyId = await getUserCompanyId()
   const payType = employee.paymentType === 'Hourly' ? 'hourly' : 'per_job'
   const payRate = employee.paymentType === 'Hourly' ? employee.hourlyRate : employee.perJobRate
 
@@ -1342,6 +1364,7 @@ export async function addEmployee(employee: Omit<Employee, 'id' | 'createdAt'>):
     .from('employees')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       name: employee.name,
       email: employee.email || null,
       phone: employee.phone || null,
@@ -1574,6 +1597,8 @@ export async function syncJobToIncome(jobId: string, customerId: string, custome
   const user = await getCachedUser()
   if (!user) return false
 
+  const companyId = await getUserCompanyId()
+
   // Check if income already exists for this job
   const { data: existing } = await supabase
     .from('income')
@@ -1591,6 +1616,7 @@ export async function syncJobToIncome(jobId: string, customerId: string, custome
     .from('income')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       job_id: jobId,
       amount: price,
       customer_name: customerName,
@@ -1675,6 +1701,8 @@ export async function convertEstimateToJob(
   const user = await getCachedUser()
   if (!user) return null
 
+  const companyId = await getUserCompanyId()
+
   // Get the estimate
   const { data: estimate, error: estError } = await supabase
     .from('estimates')
@@ -1692,6 +1720,7 @@ export async function convertEstimateToJob(
     .from('jobs')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       customer_id: estimate.customer_id,
       estimate_id: estimateId,
       date: scheduledDate,
@@ -1741,6 +1770,8 @@ export async function createInvoiceFromJob(
   const user = await getCachedUser()
   if (!user) return null
 
+  const companyId = await getUserCompanyId()
+
   // Get the job with customer info
   const { data: job, error: jobError } = await supabase
     .from('jobs')
@@ -1781,6 +1812,7 @@ export async function createInvoiceFromJob(
     .from('invoices')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       customer_id: job.customer_id,
       job_id: jobId,
       estimate_id: job.estimate_id,
@@ -1845,6 +1877,8 @@ export async function markInvoicePaid(
   const user = await getCachedUser()
   if (!user) return { success: false }
 
+  const companyId = await getUserCompanyId()
+
   // Get the invoice with customer info
   const { data: invoice, error: invError } = await supabase
     .from('invoices')
@@ -1888,6 +1922,7 @@ export async function markInvoicePaid(
     .from('income')
     .insert({
       user_id: user.id,
+      company_id: companyId,
       amount: invoice.total,
       customer_name: invoice.customers?.name || 'Unknown',
       job_type: 'Residential', // Default
