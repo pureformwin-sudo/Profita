@@ -35,9 +35,11 @@ export interface QuoteItem {
 export interface Quote {
   id: string
   user_id: string
+  company_id: string | null
   rep_user_id: string | null
   rep_employee_id: string | null
   lead_id: string | null
+  customer_id: string | null
   quote_number: number
   status: QuoteStatus
   total: number
@@ -49,6 +51,10 @@ export interface Quote {
   created_at: string
   updated_at: string
   items?: QuoteItem[]
+  // Conversion tracking
+  converted_job_id: string | null
+  converted_invoice_id: string | null
+  converted_at: string | null
   // Joined fields
   lead_name?: string
   lead_address?: string

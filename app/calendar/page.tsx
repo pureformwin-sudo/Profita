@@ -14,7 +14,9 @@ import { getJobs, addJob, updateJob, deleteJob, getCustomers, addIncome } from '
 import { Job, JobType, JobStatus, Customer } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils-finance'
 import { toast } from 'sonner'
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, Clock, MapPin, DollarSign, User, Briefcase, X, Navigation, ClipboardList, ExternalLink } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, Clock, MapPin, DollarSign, User, Briefcase, X, Navigation, ClipboardList, ExternalLink, Loader2, UserCheck } from 'lucide-react'
+import { getBookings, type Booking } from '@/lib/bookings-storage'
+import { convertBookingToJob } from '@/lib/workflow-conversions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
@@ -33,12 +35,16 @@ export default function CalendarPage() {
   const router = useRouter()
   const [jobs, setJobs] = useState<JobWithCustomer[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [bookings, setBookings] = useState<Booking[]>([])
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month')
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedJob, setSelectedJob] = useState<JobWithCustomer | null>(null)
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showJobModal, setShowJobModal] = useState(false)
+  const [showBookingModal, setShowBookingModal] = useState(false)
+  const [convertingBooking, setConvertingBooking] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
   const [formData, setFormData] = useState({
@@ -57,7 +63,11 @@ export default function CalendarPage() {
 
   const loadData = async () => {
     setIsLoading(true)
-    const [jobsData, customersData] = await Promise.all([getJobs(), getCustomers()])
+    const [jobsData, customersData, bookingsData] = await Promise.all([
+      getJobs(), 
+      getCustomers(),
+      getBookings()
+    ])
     
     // Enrich jobs with customer data
     const enrichedJobs = jobsData.map(job => {
@@ -71,6 +81,7 @@ export default function CalendarPage() {
     
     setJobs(enrichedJobs)
     setCustomers(customersData)
+    setBookings(bookingsData)
     setIsLoading(false)
   }
 
@@ -145,6 +156,11 @@ export default function CalendarPage() {
     return jobs.filter(job => job.date === dateStr)
   }
 
+  function getBookingsForDate(date: Date): Booking[] {
+    const dateStr = date.toISOString().split('T')[0]
+    return bookings.filter(booking => booking.scheduled_date === dateStr)
+  }
+
   function formatDateStr(date: Date): string {
     return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`
   }
@@ -175,6 +191,35 @@ export default function CalendarPage() {
     e.stopPropagation()
     setSelectedJob(job)
     setShowJobModal(true)
+  }
+
+  function handleBookingClick(booking: Booking, e: React.MouseEvent) {
+    e.stopPropagation()
+    setSelectedBooking(booking)
+    setShowBookingModal(true)
+  }
+
+  async function handleConvertBookingToJob() {
+    if (!selectedBooking) return
+    
+    setConvertingBooking(true)
+    const result = await convertBookingToJob(selectedBooking.id)
+    setConvertingBooking(false)
+    
+    if (result.success) {
+      toast.success(result.alreadyConverted 
+        ? 'Booking was already converted to a job'
+        : 'Booking converted to job successfully!')
+      setShowBookingModal(false)
+      setSelectedBooking(null)
+      loadData()
+      // Navigate to the job if created
+      if (result.jobId) {
+        router.push(`/jobs?id=${result.jobId}`)
+      }
+    } else {
+      toast.error(result.error || 'Failed to convert booking to job')
+    }
   }
 
   async function handleAddJob(e: React.FormEvent) {
@@ -463,27 +508,37 @@ export default function CalendarPage() {
                             )}
                           </div>
                           
-                          {/* Job name pills */}
-                          <div className="flex-1 space-y-0.5 overflow-hidden">
-                            {day.jobs.slice(0, 2).map((job) => (
-                              <div 
-                                key={job.id} 
-                                className={cn(
-                                  "text-[7px] font-medium px-1 py-0.5 rounded truncate text-white leading-tight",
-                                  job.status === 'Paid' && "bg-emerald-500",
-                                  job.status === 'Completed' && "bg-amber-500",
-                                  job.status === 'Scheduled' && "bg-blue-500"
-                                )}
-                              >
-                                {job.customerName?.split(' ')[0] || 'Job'}
-                              </div>
-                            ))}
-                            {day.jobs.length > 2 && (
-                              <div className="text-[7px] text-muted-foreground font-medium">
-                                +{day.jobs.length - 2} more
-                              </div>
-                            )}
-                          </div>
+{/* Job and Booking pills */}
+                                          <div className="flex-1 space-y-0.5 overflow-hidden">
+                                            {/* Jobs */}
+                                            {day.jobs.slice(0, 2).map((job) => (
+                                              <div 
+                                                key={job.id} 
+                                                className={cn(
+                                                  "text-[7px] font-medium px-1 py-0.5 rounded truncate text-white leading-tight",
+                                                  job.status === 'Paid' && "bg-emerald-500",
+                                                  job.status === 'Completed' && "bg-amber-500",
+                                                  job.status === 'Scheduled' && "bg-blue-500"
+                                                )}
+                                              >
+                                                {job.customerName?.split(' ')[0] || 'Job'}
+                                              </div>
+                                            ))}
+                                            {/* Bookings (purple) - only show if jobs < 2 */}
+                                            {day.jobs.length < 2 && getBookingsForDate(day.date).slice(0, 2 - day.jobs.length).map((booking) => (
+                                              <div 
+                                                key={`b-${booking.id}`}
+                                                className="text-[7px] font-medium px-1 py-0.5 rounded truncate text-white leading-tight bg-purple-500"
+                                              >
+                                                {(booking.lead_name || booking.customer_name)?.split(' ')[0] || 'Appt'}
+                                              </div>
+                                            ))}
+                                            {(day.jobs.length + getBookingsForDate(day.date).length) > 2 && (
+                                              <div className="text-[7px] text-muted-foreground font-medium">
+                                                +{day.jobs.length + getBookingsForDate(day.date).length - 2} more
+                                              </div>
+                                            )}
+                                          </div>
                         </button>
                       )
                     })}
@@ -505,56 +560,102 @@ export default function CalendarPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {selectedDate && getJobsForDate(selectedDate).length > 0 ? (
-                    getJobsForDate(selectedDate).map(job => (
-                      <div
-                        key={job.id}
-                        onClick={() => { setSelectedJob(job); setShowJobModal(true) }}
-                        className={cn(
-                          "p-3 rounded-xl cursor-pointer transition-all active:scale-[0.98]",
-                          job.status === 'Scheduled' && "bg-blue-500/10 border border-blue-500/20",
-                          job.status === 'Completed' && "bg-amber-500/10 border border-amber-500/20",
-                          job.status === 'Paid' && "bg-emerald-500/10 border border-emerald-500/20"
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold truncate">{job.customerName}</p>
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1 flex-shrink-0">
-                                <Clock className="h-3 w-3" />
-                                {job.startTime ? (
-                                  (() => {
-                                    const [h, m] = job.startTime!.split(':').map(Number)
-                                    const period = h >= 12 ? 'PM' : 'AM'
-                                    const hour12 = h % 12 || 12
-                                    return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
-                                  })()
-                                ) : (
-                                  <span className="italic text-muted-foreground/70">No time</span>
-                                )}
-                              </span>
-                              <span className="truncate">{job.customerAddress || job.jobType}</span>
-                            </div>
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <p className="font-bold text-emerald-500">{formatCurrency(job.price)}</p>
-                            <span className={cn(
-                              "text-xs px-2 py-0.5 rounded-full",
-                              job.status === 'Scheduled' && "bg-blue-500/20 text-blue-400",
-                              job.status === 'Completed' && "bg-amber-500/20 text-amber-400",
-                              job.status === 'Paid' && "bg-emerald-500/20 text-emerald-400"
-                            )}>
-                              {job.status}
+                  {/* Jobs */}
+                  {selectedDate && getJobsForDate(selectedDate).map(job => (
+                    <div
+                      key={`job-${job.id}`}
+                      onClick={() => { setSelectedJob(job); setShowJobModal(true) }}
+                      className={cn(
+                        "p-3 rounded-xl cursor-pointer transition-all active:scale-[0.98]",
+                        job.status === 'Scheduled' && "bg-blue-500/10 border border-blue-500/20",
+                        job.status === 'Completed' && "bg-amber-500/10 border border-amber-500/20",
+                        job.status === 'Paid' && "bg-emerald-500/10 border border-emerald-500/20"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold truncate">{job.customerName}</p>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span className="flex items-center gap-1 flex-shrink-0">
+                              <Clock className="h-3 w-3" />
+                              {job.startTime ? (
+                                (() => {
+                                  const [h, m] = job.startTime!.split(':').map(Number)
+                                  const period = h >= 12 ? 'PM' : 'AM'
+                                  const hour12 = h % 12 || 12
+                                  return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
+                                })()
+                              ) : (
+                                <span className="italic text-muted-foreground/70">No time</span>
+                              )}
                             </span>
+                            <span className="truncate">{job.customerAddress || job.jobType}</span>
                           </div>
                         </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="font-bold text-emerald-500">{formatCurrency(job.price)}</p>
+                          <span className={cn(
+                            "text-xs px-2 py-0.5 rounded-full",
+                            job.status === 'Scheduled' && "bg-blue-500/20 text-blue-400",
+                            job.status === 'Completed' && "bg-amber-500/20 text-amber-400",
+                            job.status === 'Paid' && "bg-emerald-500/20 text-emerald-400"
+                          )}>
+                            {job.status}
+                          </span>
+                        </div>
                       </div>
-                    ))
-                  ) : (
+                    </div>
+                  ))}
+                  
+                  {/* Bookings from Sales Force */}
+                  {selectedDate && getBookingsForDate(selectedDate).map(booking => (
+                    <div
+                      key={`booking-${booking.id}`}
+                      onClick={(e) => handleBookingClick(booking, e)}
+                      className="p-3 rounded-xl cursor-pointer transition-all active:scale-[0.98] bg-purple-500/10 border border-purple-500/20"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold truncate">{booking.lead_name || booking.customer_name || 'Lead'}</p>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 font-medium">BOOKING</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span className="flex items-center gap-1 flex-shrink-0">
+                              <Clock className="h-3 w-3" />
+                              {booking.scheduled_time ? (
+                                (() => {
+                                  const [h, m] = booking.scheduled_time.split(':').map(Number)
+                                  const period = h >= 12 ? 'PM' : 'AM'
+                                  const hour12 = h % 12 || 12
+                                  return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
+                                })()
+                              ) : (
+                                <span className="italic text-muted-foreground/70">No time</span>
+                              )}
+                            </span>
+                            <span className="truncate">{booking.service_type}</span>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <span className={cn(
+                            "text-xs px-2 py-0.5 rounded-full",
+                            booking.status === 'scheduled' && "bg-purple-500/20 text-purple-400",
+                            booking.status === 'confirmed' && "bg-emerald-500/20 text-emerald-400",
+                            booking.status === 'completed' && "bg-green-500/20 text-green-400"
+                          )}>
+                            {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Empty state */}
+                  {selectedDate && getJobsForDate(selectedDate).length === 0 && getBookingsForDate(selectedDate).length === 0 && (
                     <div className="py-6 text-center text-muted-foreground">
                       <CalendarIcon className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                      <p className="text-sm">No jobs scheduled</p>
+                      <p className="text-sm">No jobs or bookings</p>
                       <Button 
                         variant="link" 
                         size="sm"
@@ -1008,6 +1109,124 @@ export default function CalendarPage() {
                   {(selectedJob.status === 'Scheduled' || selectedJob.status === 'On the way') && (
                     <Button size="sm" variant="destructive" onClick={handleDeleteJob}>
                       Cancel
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Booking Details Modal */}
+        <Dialog open={showBookingModal} onOpenChange={setShowBookingModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Booking Details</DialogTitle>
+              <DialogDescription>Sales appointment from lead pipeline</DialogDescription>
+            </DialogHeader>
+            {selectedBooking && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-full bg-purple-500/10">
+                    <UserCheck className="h-6 w-6 text-purple-500" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-lg">{selectedBooking.lead_name || selectedBooking.customer_name || 'Unknown'}</p>
+                    <span className={cn(
+                      "text-xs px-2 py-1 rounded-full",
+                      selectedBooking.status === 'scheduled' && "bg-blue-500/20 text-blue-400",
+                      selectedBooking.status === 'confirmed' && "bg-emerald-500/20 text-emerald-400",
+                      selectedBooking.status === 'completed' && "bg-green-500/20 text-green-400",
+                      selectedBooking.status === 'cancelled' && "bg-red-500/20 text-red-400",
+                      selectedBooking.status === 'no_show' && "bg-amber-500/20 text-amber-400"
+                    )}>
+                      {selectedBooking.status.charAt(0).toUpperCase() + selectedBooking.status.slice(1)}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                    <span>{new Date(selectedBooking.scheduled_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                  </div>
+                  {selectedBooking.scheduled_time && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span>
+                        {(() => {
+                          const [h, m] = selectedBooking.scheduled_time.split(':').map(Number)
+                          const period = h >= 12 ? 'PM' : 'AM'
+                          const hour12 = h % 12 || 12
+                          return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
+                        })()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Briefcase className="h-4 w-4 text-muted-foreground" />
+                    <span>{selectedBooking.service_type || 'Service'}</span>
+                  </div>
+                  {selectedBooking.lead_phone && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <span>{selectedBooking.lead_phone}</span>
+                    </div>
+                  )}
+                  {selectedBooking.address && (
+                    <div className="flex items-center gap-2 text-sm col-span-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground" />
+                      <span>{selectedBooking.address}</span>
+                    </div>
+                  )}
+                </div>
+
+                {selectedBooking.notes && (
+                  <div className="p-3 bg-muted rounded-lg">
+                    <p className="text-sm">{selectedBooking.notes}</p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex flex-wrap gap-2 pt-4 border-t">
+                  {selectedBooking.status !== 'completed' && selectedBooking.status !== 'cancelled' && (
+                    <Button 
+                      size="sm" 
+                      onClick={handleConvertBookingToJob}
+                      disabled={convertingBooking}
+                      className="bg-emerald-500 hover:bg-emerald-600"
+                    >
+                      {convertingBooking ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <Briefcase className="h-4 w-4 mr-2" />
+                          Create Job
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  {selectedBooking.address && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(selectedBooking.address || '')}`)}
+                    >
+                      <Navigation className="h-4 w-4 mr-2" />
+                      Directions
+                    </Button>
+                  )}
+                  {selectedBooking.lead_phone && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => window.open(`tel:${selectedBooking.lead_phone}`)}
+                    >
+                      <User className="h-4 w-4 mr-2" />
+                      Call
                     </Button>
                   )}
                 </div>

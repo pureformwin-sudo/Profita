@@ -37,6 +37,8 @@ import {
 } from '@/lib/leads-storage'
 import { cn } from '@/lib/utils'
 import { STATUS_CONFIG } from '../map/page'
+import { convertLeadToCustomer, checkLeadConversionStatus } from '@/lib/workflow-conversions'
+import { UserPlus, ExternalLink } from 'lucide-react'
 
 function formatRelative(iso: string | null) {
   if (!iso) return 'Never'
@@ -398,6 +400,10 @@ export default function SalesLeadsPage() {
                 setSelectedLead((prev) => prev ? { ...prev, status } : null)
               }}
               onClose={() => setSelectedLead(null)}
+              onLeadUpdated={(updatedLead) => {
+                setLeads((prev) => prev.map((l) => l.id === updatedLead.id ? updatedLead : l))
+                setSelectedLead(updatedLead)
+              }}
             />
           )}
         </SheetContent>
@@ -411,13 +417,41 @@ function LeadDetailSheet({
   lead,
   onStatusChange,
   onClose,
+  onLeadUpdated,
 }: {
   lead: Lead
   onStatusChange: (status: LeadStatus) => void
   onClose: () => void
+  onLeadUpdated: (lead: Lead) => void
 }) {
+  const [converting, setConverting] = useState(false)
+  const [conversionStatus, setConversionStatus] = useState<{ converted: boolean; customerId?: string } | null>(null)
+  
   const config = STATUS_CONFIG[lead.status] || STATUS_CONFIG.knocked
   const Icon = config.icon
+  
+  // Check conversion status on mount
+  useEffect(() => {
+    checkLeadConversionStatus(lead.id).then(setConversionStatus)
+  }, [lead.id])
+  
+  const handleConvertToCustomer = async () => {
+    setConverting(true)
+    const result = await convertLeadToCustomer(lead.id)
+    setConverting(false)
+    
+    if (result.success) {
+      toast.success(result.alreadyConverted 
+        ? 'Lead was already converted to a customer' 
+        : 'Lead converted to customer successfully!')
+      setConversionStatus({ converted: true, customerId: result.customerId })
+      // Update lead status locally
+      onStatusChange('converted')
+      onLeadUpdated({ ...lead, status: 'converted', converted_customer_id: result.customerId || null })
+    } else {
+      toast.error(result.error || 'Failed to convert lead')
+    }
+  }
 
   const QUICK_STATUSES: { status: LeadStatus; label: string; color: string; icon: typeof Star }[] = [
     { status: 'interested',     label: 'Lead',      color: 'bg-blue-500',      icon: Star },
@@ -546,6 +580,53 @@ function LeadDetailSheet({
             </p>
           </div>
         )}
+        
+        {/* Convert to Customer Section */}
+        <div className="pt-4 border-t border-zinc-800">
+          <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Convert Lead</p>
+          {conversionStatus?.converted || lead.converted_customer_id ? (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <Check className="h-5 w-5" />
+                  <span className="font-medium">Converted to Customer</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-emerald-400 hover:text-emerald-300 gap-1"
+                  onClick={() => {
+                    const customerId = conversionStatus?.customerId || lead.converted_customer_id
+                    if (customerId) {
+                      window.location.href = `/customers?id=${customerId}`
+                    }
+                  }}
+                >
+                  View Customer
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              onClick={handleConvertToCustomer}
+              disabled={converting}
+              className="w-full bg-emerald-500 hover:bg-emerald-600 gap-2"
+            >
+              {converting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Converting...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Convert to Customer
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )

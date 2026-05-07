@@ -34,6 +34,8 @@ import {
 import { getQuotes, updateQuote, deleteQuote } from '@/lib/quotes-storage'
 import { QUOTE_STATUS_LABELS, type Quote, type QuoteStatus } from '@/lib/quotes-types'
 import { cn } from '@/lib/utils'
+import { convertQuoteToJob, convertQuoteToEstimate, checkQuoteConversionStatus } from '@/lib/workflow-conversions'
+import { Briefcase, FileEdit, Loader2, ExternalLink } from 'lucide-react'
 
 const STATUS_ICON: Record<QuoteStatus, typeof Clock> = {
   draft: FileText,
@@ -77,6 +79,8 @@ export default function SalesQuotesPage() {
   const [tablesMissing, setTablesMissing] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<QuoteStatus | 'all'>('all')
+  const [convertingToJob, setConvertingToJob] = useState<string | null>(null)
+  const [convertingToEstimate, setConvertingToEstimate] = useState<string | null>(null)
 
   const loadData = async () => {
     setLoading(true)
@@ -131,6 +135,54 @@ export default function SalesQuotesPage() {
       setQuotes((prev) => prev.filter((q) => q.id !== quote.id))
     } else {
       toast.error('Failed to delete quote')
+    }
+  }
+
+  const handleConvertToJob = async (quote: Quote) => {
+    setConvertingToJob(quote.id)
+    const result = await convertQuoteToJob(quote.id)
+    setConvertingToJob(null)
+
+    if (result.success) {
+      toast.success(result.alreadyConverted 
+        ? 'Quote was already converted to a job'
+        : 'Quote converted to job successfully!')
+      // Update quote status to accepted
+      setQuotes((prev) => prev.map((q) => 
+        q.id === quote.id 
+          ? { ...q, status: 'accepted' as QuoteStatus, converted_job_id: result.jobId || null }
+          : q
+      ))
+      // Optionally navigate to the job
+      if (result.jobId) {
+        window.location.href = `/jobs?id=${result.jobId}`
+      }
+    } else {
+      toast.error(result.error || 'Failed to convert quote to job')
+    }
+  }
+
+  const handleConvertToEstimate = async (quote: Quote) => {
+    setConvertingToEstimate(quote.id)
+    const result = await convertQuoteToEstimate(quote.id)
+    setConvertingToEstimate(null)
+
+    if (result.success) {
+      toast.success(result.alreadyConverted
+        ? 'Quote was already converted to an estimate'
+        : 'Quote converted to estimate successfully!')
+      // Update quote status
+      setQuotes((prev) => prev.map((q) => 
+        q.id === quote.id 
+          ? { ...q, converted_invoice_id: result.estimateId || null }
+          : q
+      ))
+      // Navigate to estimates
+      if (result.estimateId) {
+        window.location.href = `/estimates?id=${result.estimateId}`
+      }
+    } else {
+      toast.error(result.error || 'Failed to convert quote to estimate')
     }
   }
 
@@ -296,7 +348,53 @@ export default function SalesQuotesPage() {
                       <div className="text-xl font-bold text-foreground">
                         {formatCurrency(quote.total)}
                       </div>
-                      <div className="flex items-center gap-1 mt-2">
+                      <div className="flex flex-wrap items-center gap-1 mt-2">
+                        {/* Already converted - show link */}
+                        {quote.converted_job_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-emerald-500 hover:text-emerald-400"
+                            onClick={() => window.location.href = `/jobs?id=${quote.converted_job_id}`}
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            View Job
+                          </Button>
+                        )}
+                        {/* Convert to Job - show for sent/viewed/accepted quotes not already converted */}
+                        {['sent', 'viewed', 'accepted'].includes(quote.status) && !quote.converted_job_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-emerald-500 hover:text-emerald-400"
+                            onClick={() => handleConvertToJob(quote)}
+                            disabled={convertingToJob === quote.id}
+                          >
+                            {convertingToJob === quote.id ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <Briefcase className="h-3 w-3 mr-1" />
+                            )}
+                            {convertingToJob === quote.id ? 'Converting...' : 'Create Job'}
+                          </Button>
+                        )}
+                        {/* Convert to Estimate - show for any quote not already converted */}
+                        {!quote.converted_invoice_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-amber-500 hover:text-amber-400"
+                            onClick={() => handleConvertToEstimate(quote)}
+                            disabled={convertingToEstimate === quote.id}
+                          >
+                            {convertingToEstimate === quote.id ? (
+                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <FileEdit className="h-3 w-3 mr-1" />
+                            )}
+                            {convertingToEstimate === quote.id ? 'Converting...' : 'Estimate'}
+                          </Button>
+                        )}
                         {quote.status === 'draft' && (
                           <Button
                             variant="ghost"
