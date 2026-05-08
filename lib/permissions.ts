@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 // Role & Permission System
 // =============================================================================
 
-export type Role = 'owner' | 'admin' | 'dispatcher' | 'worker' | 'sales_rep' | 'accountant'
+export type Role = 'owner' | 'admin' | 'manager' | 'dispatcher' | 'office_staff' | 'worker' | 'sales_rep' | 'accountant'
 
 export type Permission =
   // Jobs
@@ -38,6 +38,11 @@ export type Permission =
   // Team
   | 'manage_team'
   | 'manage_service_plans'
+  // Payroll & Commissions
+  | 'manage_payroll'
+  | 'view_commissions'
+  | 'manage_commissions'
+  | 'view_own_commissions'
   // AI & Settings
   | 'use_ai_growth'
   | 'manage_notifications'
@@ -71,9 +76,22 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
     'create_estimates', 'send_estimates', 'convert_estimates_to_jobs',
     'view_invoices', 'create_invoices', 'send_invoices', 'mark_invoice_paid',
     'collect_payments', 'view_finances', 'manage_expenses',
+    'view_reports', 'view_payroll', 'manage_payroll',
+    'manage_team', 'manage_service_plans',
+    'view_commissions', 'manage_commissions',
+    'use_ai_growth', 'manage_notifications',
+    'access_saleshub', 'view_sales_dashboard', 'create_leads', 'view_all_leads',
+  ],
+  manager: [
+    // Team operations, jobs, customers, scheduling - view payroll/commissions but not manage
+    'view_all_jobs', 'create_jobs', 'edit_jobs', 'assign_workers',
+    'view_all_customers', 'create_customers', 'edit_customers',
+    'create_estimates', 'send_estimates', 'convert_estimates_to_jobs',
+    'view_invoices', 'create_invoices', 'send_invoices',
     'view_reports', 'view_payroll',
     'manage_team', 'manage_service_plans',
-    'use_ai_growth', 'manage_notifications',
+    'view_commissions',
+    'manage_notifications',
     'access_saleshub', 'view_sales_dashboard', 'create_leads', 'view_all_leads',
   ],
   dispatcher: [
@@ -82,6 +100,14 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
     'view_all_customers', 'create_customers',
     'create_estimates', 'send_estimates',
     'view_invoices', 'create_invoices',
+    'manage_notifications',
+  ],
+  office_staff: [
+    // Customer service, scheduling, invoicing - no team/payroll access
+    'view_all_jobs', 'create_jobs',
+    'view_all_customers', 'create_customers', 'edit_customers',
+    'create_estimates', 'send_estimates',
+    'view_invoices', 'create_invoices', 'send_invoices',
     'manage_notifications',
   ],
   worker: [
@@ -96,6 +122,7 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
     'create_customers',
     'create_estimates', 'send_estimates',
     'access_saleshub', 'view_sales_dashboard', 'create_leads', 'view_assigned_leads_only',
+    'view_own_commissions',
     'manage_notifications',
   ],
   accountant: [
@@ -104,7 +131,8 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
     'view_all_customers',
     'view_invoices', 'create_invoices', 'send_invoices', 'mark_invoice_paid',
     'collect_payments', 'view_finances', 'manage_expenses',
-    'view_reports', 'view_payroll',
+    'view_reports', 'view_payroll', 'manage_payroll',
+    'view_commissions', 'manage_commissions',
     'manage_notifications',
   ],
 }
@@ -112,7 +140,9 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
 export const ROLE_LABELS: Record<Role, string> = {
   owner: 'Owner',
   admin: 'Admin',
+  manager: 'Manager',
   dispatcher: 'Dispatcher',
+  office_staff: 'Office Staff',
   worker: 'Worker',
   sales_rep: 'Sales Rep',
   accountant: 'Accountant',
@@ -121,10 +151,12 @@ export const ROLE_LABELS: Record<Role, string> = {
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   owner: 'Full access to everything. Can manage billing and delete company.',
   admin: 'Manages jobs, team, and most settings. Cannot delete company or manage billing.',
+  manager: 'Team operations, jobs, customers, scheduling. Views payroll and commissions.',
   dispatcher: 'Creates and assigns jobs, manages schedule. Limited finance access.',
+  office_staff: 'Customer service, scheduling, invoicing. No team or payroll access.',
   worker: 'Views and completes assigned jobs only. Cannot see finances or other jobs.',
-  sales_rep: 'Manages leads, creates estimates, closes deals. Sales-focused access.',
-  accountant: 'Manages invoices, payments, expenses, and reports. Cannot manage jobs.',
+  sales_rep: 'Manages leads, creates estimates, closes deals. Views own commissions.',
+  accountant: 'Manages invoices, payments, payroll, and commissions. Cannot manage jobs.',
 }
 
 export const PERMISSION_LABELS: Record<Permission, string> = {
@@ -150,6 +182,10 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   manage_expenses: 'Manage Expenses',
   view_reports: 'View Reports',
   view_payroll: 'View Payroll',
+  manage_payroll: 'Manage Payroll',
+  view_commissions: 'View Commissions',
+  manage_commissions: 'Manage Commissions',
+  view_own_commissions: 'View Own Commissions',
   manage_team: 'Manage Team',
   manage_service_plans: 'Manage Service Plans',
   use_ai_growth: 'Use AI Growth',
@@ -168,7 +204,7 @@ export const PERMISSION_CATEGORIES = {
   customers: ['view_all_customers', 'view_assigned_customers_only', 'create_customers', 'edit_customers'] as Permission[],
   estimates: ['create_estimates', 'send_estimates', 'convert_estimates_to_jobs'] as Permission[],
   invoices: ['view_invoices', 'create_invoices', 'send_invoices', 'mark_invoice_paid'] as Permission[],
-  finance: ['collect_payments', 'view_finances', 'manage_expenses', 'view_reports', 'view_payroll'] as Permission[],
+  finance: ['collect_payments', 'view_finances', 'manage_expenses', 'view_reports', 'view_payroll', 'manage_payroll', 'view_commissions', 'manage_commissions', 'view_own_commissions'] as Permission[],
   team: ['manage_team', 'manage_service_plans', 'manage_user_roles'] as Permission[],
   settings: ['use_ai_growth', 'manage_notifications', 'manage_settings'] as Permission[],
   sales: ['access_saleshub', 'view_sales_dashboard', 'create_leads', 'view_all_leads', 'view_assigned_leads_only'] as Permission[],
