@@ -90,7 +90,7 @@ import {
   type Role,
 } from '@/lib/permissions'
 import { usePermissions, AdminOnly } from '@/lib/permissions-context'
-import { Mail, Shield, UserX, Link2, Award, Percent, AlertCircle, CheckCircle, XCircle, Loader2, Settings } from 'lucide-react'
+import { Mail, Shield, UserX, Link2, Award, Percent, AlertCircle, CheckCircle, XCircle, Settings } from 'lucide-react'
 import {
   getCommissions,
   getCommissionRules,
@@ -99,7 +99,7 @@ import {
   updateCommission,
   bulkMarkCommissionsPaid,
 } from '@/lib/commissions-storage'
-import type { Commission, CommissionRule, CommissionStatus, CommissionTriggerType, CommissionRateType } from '@/lib/commissions-types'
+import type { Commission, CommissionRule, CommissionStatus, CommissionTrigger, CommissionRateType } from '@/lib/commissions-types'
 
 type TabType = 'activity' | 'team' | 'payroll' | 'commissions' | 'users'
 
@@ -166,7 +166,7 @@ function TeamPageContent() {
   const [ruleForm, setRuleForm] = useState({
     name: '',
     description: '',
-    triggerType: 'payment_received' as CommissionTriggerType,
+    triggerType: 'payment_received' as CommissionTrigger,
     rateType: 'percentage' as CommissionRateType,
     rateValue: '',
     minBaseAmount: '',
@@ -1066,9 +1066,9 @@ function TeamPageContent() {
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {rule.rateType === 'percentage' ? `${rule.rateValue}%` : `$${rule.rateValue}`} on {rule.triggerType.replace('_', ' ')}
+                            {rule.rateType === 'percentage' ? `${rule.rateValue}%` : `$${rule.rateValue}`} on {rule.triggerType.replace(/_/g, ' ')}
                             {rule.appliesToRoles && rule.appliesToRoles.length > 0 && (
-                              <span> · {rule.appliesToRoles.map(r => ROLE_LABELS[r as Role] || r).join(', ')}</span>
+                              <span> &middot; {rule.appliesToRoles.map(r => ROLE_LABELS[r as Role] || r).join(', ')}</span>
                             )}
                           </p>
                         </div>
@@ -1156,9 +1156,9 @@ function TeamPageContent() {
                     if (toPay.length === 0) return
                     if (!confirm(`Mark ${toPay.length} commission(s) as paid?`)) return
                     
-                    const { successCount } = await bulkMarkCommissionsPaid(toPay.map(c => c.id))
-                    if (successCount > 0) {
-                      toast.success(`${successCount} commission(s) marked as paid`)
+                    const result = await bulkMarkCommissionsPaid(toPay.map(c => c.id), 'admin')
+                    if (result.success > 0) {
+                      toast.success(`${result.success} commission(s) marked as paid`)
                       loadData()
                     } else {
                       toast.error('Failed to mark commissions as paid')
@@ -1191,12 +1191,10 @@ function TeamPageContent() {
                       
                       return (
                         <div key={commission.id} className="flex items-center gap-4 p-4 hover:bg-secondary/30 transition-colors">
-                          {/* Avatar */}
                           <div className="h-10 w-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
                             <Award className="h-5 w-5 text-emerald-500" />
                           </div>
                           
-                          {/* Info */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="font-medium truncate">{employee?.name || 'Unknown'}</p>
@@ -1218,20 +1216,17 @@ function TeamPageContent() {
                               </Badge>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {commission.triggerType.replace('_', ' ')}
+                              {commission.triggerType.replace(/_/g, ' ')}
                               {commission.rateType === 'percentage' ? ` · ${commission.rate}% of $${commission.baseAmount.toLocaleString()}` : ` · $${commission.rate} flat`}
-                              {commission.earnedAt && ` · Earned ${formatDate(commission.earnedAt)}`}
                             </p>
                           </div>
                           
-                          {/* Amount */}
                           <div className="text-right shrink-0">
                             <p className="font-bold text-emerald-500 text-lg">
                               ${commission.amount.toLocaleString()}
                             </p>
                           </div>
                           
-                          {/* Actions */}
                           {hasPermission('manage_commissions') && commission.status !== 'paid' && commission.status !== 'void' && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -1443,8 +1438,8 @@ function TeamPageContent() {
                                                       : 'bg-muted text-muted-foreground'
                                       }`}
                                     >
-                                      {ROLE_LABELS[member.role]}
-                                    </Badge>
+                      {ROLE_LABELS[member.role]}
+                    </Badge>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
@@ -1950,7 +1945,7 @@ function TeamPageContent() {
                 <Label className="text-xs text-muted-foreground mb-1.5 block">Trigger *</Label>
                 <Select 
                   value={ruleForm.triggerType} 
-                  onValueChange={(v) => setRuleForm({ ...ruleForm, triggerType: v as CommissionTriggerType })}
+                  onValueChange={(v) => setRuleForm({ ...ruleForm, triggerType: v as CommissionTrigger })}
                 >
                   <SelectTrigger>
                     <SelectValue />
