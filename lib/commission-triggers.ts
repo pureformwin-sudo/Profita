@@ -104,20 +104,19 @@ async function findSalesRepFromJob(
   supabase: ReturnType<typeof createClient>,
   jobId: string
 ): Promise<EmployeeInfo | null> {
-  // First try: job -> estimate -> lead -> owner_employee_id
+  // First try: job -> lead_id -> lead.owner_employee_id
   const { data: job } = await supabase
     .from('jobs')
-    .select('estimate_id')
+    .select('lead_id')
     .eq('id', jobId)
     .maybeSingle()
 
-  if (job?.estimate_id) {
-    // Estimates may be linked to leads via estimate_id on leads table
-    // Try to find a lead that converted using this estimate
+  if (job?.lead_id) {
+    // Jobs are directly linked to leads via lead_id
     const { data: lead } = await supabase
       .from('leads')
       .select('owner_employee_id')
-      .eq('converted_estimate_id', job.estimate_id)
+      .eq('id', job.lead_id)
       .maybeSingle()
 
     if (lead?.owner_employee_id) {
@@ -360,7 +359,8 @@ export async function triggerCommissionForInvoicePaid(invoice: {
 export async function triggerCommissionForJobCreated(job: {
   id: string
   price: number
-  estimateId: string | null
+  estimateId?: string | null
+  leadId?: string | null
 }): Promise<void> {
   try {
     const supabase = createClient()
@@ -369,7 +369,8 @@ export async function triggerCommissionForJobCreated(job: {
     const rules = await getActiveRulesForTrigger('job_created')
     if (rules.length === 0) return
 
-    // Find sales rep through chain (estimate -> lead -> owner_employee_id)
+    // Find sales rep through chain (job -> lead_id -> lead.owner_employee_id)
+    // or from job_workers if no lead
     const employee = await findSalesRepFromJob(supabase, job.id)
 
     if (!employee) {
