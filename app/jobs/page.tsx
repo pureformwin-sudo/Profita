@@ -833,10 +833,10 @@ const handleDeleteJob = async (id: string) => {
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold">Jobs</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              <span className="font-medium text-foreground">{jobs.length}</span> total
+<p className="text-sm text-muted-foreground mt-1">
+              <span className="font-medium text-foreground">{jobs.length}</span> jobs
               <span className="mx-2 text-border">|</span>
-              <span className="text-emerald-500 font-medium">${totalRevenue.toLocaleString()}</span> billed
+              <span className="text-emerald-500 font-medium">${totalRevenue.toLocaleString()}</span> job revenue
               {collectedRevenue > 0 && (
                 <>
                   <span className="mx-2 text-border">|</span>
@@ -844,7 +844,10 @@ const handleDeleteJob = async (id: string) => {
                 </>
               )}
               <span className="mx-2 text-border">|</span>
-              <span className={`font-medium ${totalProfit >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>${totalProfit.toLocaleString()}</span> profit
+              <span className={`font-medium ${totalProfit >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>${totalProfit.toLocaleString()}</span> job profit
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Standalone invoices (without jobs) are tracked separately in customer balances
             </p>
           </div>
           <Button onClick={openNewJobPanel} size="sm" className="gap-2 shrink-0">
@@ -1082,14 +1085,13 @@ onClick={() => openJobDetail(job)}
   </DropdownMenuItem>
   )}
   {job.invoiceId && (
-  <DropdownMenuItem onClick={() => {
-  const inv = invoices.find(i => i.id === job.invoiceId)
-  if (inv) toast.info(`Invoice: ${inv.invoiceNumber} (${inv.status})`)
-  }}>
-  <FileText className="h-4 w-4 mr-2" />
-  View Invoice
-  </DropdownMenuItem>
-  )}
+                          <DropdownMenuItem onClick={() => {
+                            window.location.href = `/invoices?highlight=${job.invoiceId}`
+                          }}>
+                            <FileText className="h-4 w-4 mr-2" />
+                            View Invoice
+                          </DropdownMenuItem>
+                        )}
   <DropdownMenuItem onClick={() => handleDeleteJob(job.id)} className="text-destructive">
   <Trash2 className="h-4 w-4 mr-2" />
   Delete
@@ -1154,8 +1156,7 @@ onClick={() => openJobDetail(job)}
                         )}
                         {job.invoiceId && (
                           <DropdownMenuItem onClick={() => {
-                            const inv = invoices.find(i => i.id === job.invoiceId)
-                            if (inv) toast.info(`Invoice: ${inv.invoiceNumber} (${inv.status})`)
+                            window.location.href = `/invoices?highlight=${job.invoiceId}`
                           }}>
                             <FileText className="h-4 w-4 mr-2" />
                             View Invoice

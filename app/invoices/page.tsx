@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Plus, FileText, Send, Trash2, Eye, MoreHorizontal, DollarSign, Clock, CheckCircle, AlertCircle, Search, Link2, Sparkles, Receipt, ArrowRight, Download, Mail, Briefcase, XCircle, RefreshCw, CreditCard, Loader2, History } from 'lucide-react'
 import { LineItemEditor, TotalsSummary, type LineItem } from '@/components/line-item-editor'
 import { toast } from 'sonner'
-import { getInvoices, getEstimates, getCustomers, addInvoice, addEstimate, updateInvoice, updateEstimate, deleteInvoice, deleteEstimate, getNextInvoiceNumber, getNextEstimateNumber, getSettings, getJobs, convertEstimateToJob, createInvoiceFromJob, markInvoicePaid } from '@/lib/storage'
+import { getInvoices, getEstimates, getCustomers, addInvoice, addEstimate, updateInvoice, updateEstimate, deleteInvoice, deleteEstimate, getNextInvoiceNumber, getNextEstimateNumber, getSettings, getJobs, convertEstimateToJob, createInvoiceFromJob, markInvoicePaid, updateJob } from '@/lib/storage'
 import { Invoice, Estimate, Customer, InvoiceItem, EstimateItem, InvoiceStatus, EstimateStatus, Job } from '@/lib/types'
 import { formatDate } from '@/lib/utils-finance'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -57,12 +57,23 @@ export default function InvoicesPage() {
 
   // Form state
   const [formCustomerId, setFormCustomerId] = useState('')
+  const [formJobId, setFormJobId] = useState<string | null>(null)
   const [formItems, setFormItems] = useState<LineItem[]>([
     { id: '1', description: '', quantity: 1, unitPrice: 0, total: 0 }
   ])
   const [formNotes, setFormNotes] = useState('')
   const [formDueDate, setFormDueDate] = useState('')
   const [jobs, setJobs] = useState<Job[]>([])
+  
+  // Get jobs for selected customer (for invoice linking)
+  const customerJobs = formCustomerId 
+    ? jobs.filter(j => j.customerId === formCustomerId && !j.invoiceId)
+    : []
+  
+  // Check if selected job already has an invoice
+  const selectedJobHasInvoice = formJobId 
+    ? jobs.find(j => j.id === formJobId)?.invoiceId 
+    : false
 
   useEffect(() => {
     loadData()
@@ -135,6 +146,7 @@ export default function InvoicesPage() {
 
     const newInvoice = await addInvoice({
       customerId: formCustomerId,
+      jobId: formJobId || undefined,
       invoiceNumber,
       status: 'draft',
       issueDate: today,
@@ -149,16 +161,21 @@ export default function InvoicesPage() {
     })
 
 if (newInvoice) {
-  const customer = customers.find(c => c.id === formCustomerId)
-  if (customer) {
-    notifyInvoiceCreated({ id: newInvoice.id, invoiceNumber: newInvoice.invoiceNumber, total: newInvoice.total, customerId: formCustomerId }, customer.name)
-  }
-  toast.success('Invoice created!')
-  setShowCreateInvoice(false)
-  resetForm()
-  loadData()
-  } else {
-  toast.error('Failed to create invoice')
+      // Update job with invoice_id if linked
+      if (formJobId) {
+        await updateJob(formJobId, { invoiceId: newInvoice.id, status: 'Invoiced' })
+      }
+      
+      const customer = customers.find(c => c.id === formCustomerId)
+      if (customer) {
+        notifyInvoiceCreated({ id: newInvoice.id, invoiceNumber: newInvoice.invoiceNumber, total: newInvoice.total, customerId: formCustomerId }, customer.name)
+      }
+      toast.success(formJobId ? 'Invoice created and linked to job!' : 'Invoice created!')
+      setShowCreateInvoice(false)
+      resetForm()
+      loadData()
+    } else {
+      toast.error('Failed to create invoice')
     }
   }
 
@@ -315,9 +332,39 @@ async function handleConvertToJob(estimate: Estimate) {
 
   function resetForm() {
     setFormCustomerId('')
+    setFormJobId(null)
     setFormItems([{ id: '1', description: '', quantity: 1, unitPrice: 0, total: 0 }])
     setFormNotes('')
     setFormDueDate('')
+  }
+  
+  // Auto-fill invoice from selected job
+  function handleJobSelect(jobId: string) {
+    if (jobId === 'none') {
+      setFormJobId(null)
+      return
+    }
+    
+    const job = jobs.find(j => j.id === jobId)
+    if (!job) return
+    
+    setFormJobId(jobId)
+    
+    // Auto-fill from job
+    const customer = customers.find(c => c.id === job.customerId)
+    if (customer) {
+      setFormCustomerId(job.customerId)
+    }
+    
+    // Create line item from job
+    const jobDescription = `${job.jobType} Service${job.notes ? ` - ${job.notes}` : ''}`
+    setFormItems([{
+      id: '1',
+      description: jobDescription,
+      quantity: 1,
+      unitPrice: job.price,
+      total: job.price
+    }])
   }
 
   // Open Record Payment modal
@@ -567,6 +614,16 @@ async function handleConvertToJob(estimate: Estimate) {
                               <Badge className={cn("text-xs", getStatusColor(invoice.status))}>
                                 {invoice.status}
                               </Badge>
+                              {invoice.jobId ? (
+                                <span className="text-[10px] text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                  <Briefcase className="h-2.5 w-2.5" />
+                                  Job linked
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                  Standalone
+                                </span>
+                              )}
                             </div>
                             <p className="text-sm text-muted-foreground mt-0.5">
                               {invoice.invoiceNumber} &middot; Due {formatDate(invoice.dueDate)}
@@ -755,10 +812,53 @@ async function handleConvertToJob(estimate: Estimate) {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-6 py-4">
+              {/* Job Selection - Primary way to create invoice */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Briefcase className="h-4 w-4" />
+                  Link to Job (Recommended)
+                </Label>
+                <Select 
+                  value={formJobId || 'none'} 
+                  onValueChange={handleJobSelect}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a job to invoice" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No job (standalone invoice)</SelectItem>
+                    {jobs.filter(j => !j.invoiceId && (j.status === 'Completed' || j.status === 'In progress')).map(job => {
+                      const customer = customers.find(c => c.id === job.customerId)
+                      return (
+                        <SelectItem key={job.id} value={job.id}>
+                          {customer?.name} - {job.jobType} (${job.price}) - {formatDate(job.date)}
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+                {!formJobId && (
+                  <p className="text-xs text-muted-foreground">
+                    Linking to a job tracks revenue and profit accurately. Standalone invoices only appear in customer balance.
+                  </p>
+                )}
+                {formJobId && (
+                  <p className="text-xs text-emerald-600">
+                    Invoice will be linked to this job for accurate revenue tracking.
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Customer</Label>
-                  <Select value={formCustomerId} onValueChange={setFormCustomerId}>
+                  <Select 
+                    value={formCustomerId} 
+                    onValueChange={(v) => {
+                      setFormCustomerId(v)
+                      setFormJobId(null) // Reset job when customer changes
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select customer" />
                     </SelectTrigger>
