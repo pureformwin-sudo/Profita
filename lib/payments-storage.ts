@@ -13,6 +13,7 @@ import type {
   RecordPaymentResult,
   RefundPaymentResult 
 } from './payments-types'
+import { triggerCommissionForPayment } from './commission-triggers'
 
 // Re-export types for consumers
 export type { PaymentMethod, PaymentStatus }
@@ -332,6 +333,14 @@ export async function recordPayment(
         .eq('id', input.jobId)
     }
     
+    // Trigger commission (non-blocking)
+    triggerCommissionForPayment({
+      id: data.id,
+      invoiceId: data.invoice_id,
+      jobId: data.job_id,
+      amount: Number(data.amount),
+    }).catch(err => console.error('[Commission] Failed to trigger:', err))
+    
     return {
       success: true,
       payment: {
@@ -355,6 +364,14 @@ export async function recordPayment(
       remainingBalance: invoiceTotal - newAmountPaid,
     }
   }
+  
+  // Trigger commission for non-invoice payment (non-blocking)
+  triggerCommissionForPayment({
+    id: data.id,
+    invoiceId: data.invoice_id,
+    jobId: data.job_id,
+    amount: Number(data.amount),
+  }).catch(err => console.error('[Commission] Failed to trigger:', err))
   
   return {
     success: true,

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import { triggerCommissionForLeadCreated } from './commission-triggers'
 
 export type LeadStatus =
   | 'knocked'
@@ -177,6 +178,14 @@ export async function createLead(input: {
     }
     return { data: null, error: error.message || 'Failed to create lead.' }
   }
+  
+  // Trigger commission for lead_created (non-blocking)
+  triggerCommissionForLeadCreated({
+    id: data.id,
+    ownerEmployeeId: data.owner_employee_id,
+    estimatedValue: data.estimated_value ?? null,
+  }).catch(err => console.error('[Commission] Failed to trigger for lead:', err))
+  
   return { data: data as Lead, error: null }
 }
 

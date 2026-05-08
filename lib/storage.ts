@@ -1,5 +1,6 @@
 import { createClient, getCachedUser } from '@/lib/supabase/client'
 import type { Income, Expense, Settings, ProfitAllocation, PendingIncome, UpcomingExpense, Job, Customer, BusinessProfile, Estimate, Invoice, EstimateItem, InvoiceItem, EstimateStatus, InvoiceStatus, Employee, JobWorker, PayrollSummary } from './types'
+import { triggerCommissionForInvoicePaid, triggerCommissionForJobCreated } from './commission-triggers'
 
 // Get Supabase client (singleton, see lib/supabase/client.ts)
 function getSupabase() {
@@ -755,6 +756,13 @@ export async function addJob(job: Omit<Job, 'id' | 'createdAt'>): Promise<Job | 
   return null
   }
   
+  // Trigger commission for job_created (non-blocking)
+  triggerCommissionForJobCreated({
+    id: data.id,
+    price: Number(data.price) || 0,
+    estimateId: data.estimate_id,
+  }).catch(err => console.error('[Commission] Failed to trigger for job:', err))
+  
   return {
   id: data.id,
   customerId: data.customer_id,
@@ -1224,7 +1232,10 @@ export async function addInvoice(invoice: Omit<Invoice, 'id' | 'createdAt' | 'cu
 
 export async function updateInvoice(id: string, updates: Partial<Invoice>): Promise<Invoice | null> {
   const supabase = getSupabase()
-
+  
+  // Check if we're updating to 'paid' status for commission trigger
+  const statusChangingToPaid = updates.status === 'paid'
+  
   const updateData: any = {}
   if (updates.customerId !== undefined) updateData.customer_id = updates.customerId
   if (updates.jobId !== undefined) updateData.job_id = updates.jobId
@@ -1239,40 +1250,49 @@ export async function updateInvoice(id: string, updates: Partial<Invoice>): Prom
   if (updates.amountPaid !== undefined) updateData.amount_paid = updates.amountPaid
   if (updates.notes !== undefined) updateData.notes = updates.notes
   if (updates.stripePaymentIntentId !== undefined) updateData.stripe_payment_intent_id = updates.stripePaymentIntentId
-
+  
   const { data, error } = await supabase
-    .from('invoices')
-    .update(updateData)
-    .eq('id', id)
-    .select('*, customers(name)')
-    .single()
-
+  .from('invoices')
+  .update(updateData)
+  .eq('id', id)
+  .select('*, customers(name)')
+  .single()
+  
   if (error) {
-    console.error('Error updating invoice:', error)
-    return null
+  console.error('Error updating invoice:', error)
+  return null
   }
-
+  
+  // Trigger commission if status changed to 'paid' (non-blocking)
+  if (statusChangingToPaid) {
+    triggerCommissionForInvoicePaid({
+      id: data.id,
+      jobId: data.job_id,
+      total: parseFloat(data.total),
+    }).catch(err => console.error('[Commission] Failed to trigger for invoice:', err))
+  }
+  
   return {
-    id: data.id,
-    customerId: data.customer_id,
-    customerName: data.customers?.name,
-    jobId: data.job_id,
-    estimateId: data.estimate_id,
-    invoiceNumber: data.invoice_number,
-    status: data.status,
-    issueDate: data.issue_date,
-    dueDate: data.due_date,
-    items: data.items || [],
-    subtotal: parseFloat(data.subtotal),
-    taxRate: parseFloat(data.tax_rate),
-    taxAmount: parseFloat(data.tax_amount),
-    total: parseFloat(data.total),
-    amountPaid: parseFloat(data.amount_paid),
-    notes: data.notes,
-    stripePaymentIntentId: data.stripe_payment_intent_id,
-    createdAt: data.created_at,
+  id: data.id,
+  customerId: data.customer_id,
+  customerName: data.customers?.name,
+  jobId: data.job_id,
+  estimateId: data.estimate_id,
+  invoiceNumber: data.invoice_number,
+  status: data.status,
+  issueDate: data.issue_date,
+  dueDate: data.due_date,
+  items: data.items || [],
+  subtotal: parseFloat(data.subtotal),
+  taxRate: parseFloat(data.tax_rate),
+  taxAmount: parseFloat(data.tax_amount),
+  total: parseFloat(data.total),
+  amountPaid: parseFloat(data.amount_paid),
+  notes: data.notes,
+  stripePaymentIntentId: data.stripe_payment_intent_id,
+  createdAt: data.created_at,
   }
-}
+  }
 
 export async function deleteInvoice(id: string): Promise<boolean> {
   const supabase = getSupabase()
