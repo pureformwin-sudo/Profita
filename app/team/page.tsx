@@ -90,9 +90,18 @@ import {
   type Role,
 } from '@/lib/permissions'
 import { usePermissions, AdminOnly } from '@/lib/permissions-context'
-import { Mail, Shield, UserX, Link2 } from 'lucide-react'
+import { Mail, Shield, UserX, Link2, Award, Percent, AlertCircle, CheckCircle, XCircle, Loader2, Settings } from 'lucide-react'
+import {
+  getCommissions,
+  getCommissionRules,
+  addCommissionRule,
+  updateCommissionRule,
+  updateCommission,
+  bulkMarkCommissionsPaid,
+} from '@/lib/commissions-storage'
+import type { Commission, CommissionRule, CommissionStatus, CommissionTriggerType, CommissionRateType } from '@/lib/commissions-types'
 
-type TabType = 'activity' | 'team' | 'payroll' | 'users'
+type TabType = 'activity' | 'team' | 'payroll' | 'commissions' | 'users'
 
 function TeamPageContent() {
   const searchParams = useSearchParams()
@@ -147,7 +156,25 @@ function TeamPageContent() {
     role: 'worker' as Role,
   })
   
-  const { isOwner, isAdmin } = usePermissions()
+  const { isOwner, isAdmin, hasPermission } = usePermissions()
+
+  // Commission state
+  const [commissions, setCommissions] = useState<Commission[]>([])
+  const [commissionRules, setCommissionRules] = useState<CommissionRule[]>([])
+  const [showRulePanel, setShowRulePanel] = useState(false)
+  const [editingRule, setEditingRule] = useState<CommissionRule | null>(null)
+  const [ruleForm, setRuleForm] = useState({
+    name: '',
+    description: '',
+    triggerType: 'payment_received' as CommissionTriggerType,
+    rateType: 'percentage' as CommissionRateType,
+    rateValue: '',
+    minBaseAmount: '',
+    maxCommission: '',
+    appliesToRoles: ['sales_rep'] as string[],
+    active: true,
+  })
+  const [commissionFilter, setCommissionFilter] = useState<CommissionStatus | 'all'>('all')
 
   // Load data
   useEffect(() => {
@@ -157,18 +184,22 @@ function TeamPageContent() {
   async function loadData() {
     setIsLoading(true)
     try {
-      const [empData, payroll, jobsData, custData, membersData] = await Promise.all([
+      const [empData, payroll, jobsData, custData, membersData, commissionsData, rulesData] = await Promise.all([
         getEmployees(),
         getPayrollSummary(),
         getJobs(),
         getCustomers(),
-        getCompanyMembers()
+        getCompanyMembers(),
+        getCommissions(),
+        getCommissionRules()
       ])
       setEmployees(empData)
       setPayrollData(payroll)
       setCompanyMembers(membersData)
       setJobs(jobsData)
       setCustomers(custData)
+      setCommissions(commissionsData)
+      setCommissionRules(rulesData)
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('Failed to load team data')
@@ -394,6 +425,24 @@ function TeamPageContent() {
               </span>
             )}
           </button>
+          {(hasPermission('view_commissions') || hasPermission('manage_commissions')) && (
+            <button 
+              onClick={() => switchTab('commissions')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                activeTab === 'commissions' 
+                  ? 'bg-background text-foreground shadow-sm' 
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Award className="h-4 w-4" />
+              Commissions
+              {commissions.filter(c => c.status === 'pending' || c.status === 'earned').length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-500/20 text-emerald-500">
+                  {commissions.filter(c => c.status === 'pending' || c.status === 'earned').length}
+                </span>
+              )}
+            </button>
+          )}
           {isAdmin && (
             <button 
               onClick={() => switchTab('users')}
@@ -917,6 +966,358 @@ function TeamPageContent() {
           </div>
         )}
 
+        {/* Commissions Tab */}
+        {activeTab === 'commissions' && (hasPermission('view_commissions') || hasPermission('manage_commissions')) && (
+          <div className="space-y-6">
+            {/* Commission Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <div className="flex items-center gap-2">
+                  <Award className="h-3 w-3 text-emerald-500" />
+                  <span className="text-xs text-muted-foreground">Earned</span>
+                </div>
+                <p className="text-2xl font-bold text-emerald-500 mt-1">
+                  ${commissions.filter(c => c.status === 'earned').reduce((sum, c) => sum + c.amount, 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-3 w-3 text-amber-500" />
+                  <span className="text-xs text-muted-foreground">Pending</span>
+                </div>
+                <p className="text-2xl font-bold text-amber-500 mt-1">
+                  ${commissions.filter(c => c.status === 'pending').reduce((sum, c) => sum + c.amount, 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-3 w-3 text-blue-500" />
+                  <span className="text-xs text-muted-foreground">Paid</span>
+                </div>
+                <p className="text-2xl font-bold text-blue-500 mt-1">
+                  ${commissions.filter(c => c.status === 'paid').reduce((sum, c) => sum + c.amount, 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-secondary/30 p-3">
+                <div className="flex items-center gap-2">
+                  <Percent className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Rules</span>
+                </div>
+                <p className="text-2xl font-bold mt-1">{commissionRules.filter(r => r.active).length}</p>
+              </div>
+            </div>
+
+            {/* Commission Rules Section - Admin Only */}
+            {hasPermission('manage_commissions') && (
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <Settings className="h-4 w-4" />
+                      Commission Rules
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">Define how commissions are calculated</p>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => {
+                      setEditingRule(null)
+                      setRuleForm({
+                        name: '',
+                        description: '',
+                        triggerType: 'payment_received',
+                        rateType: 'percentage',
+                        rateValue: '',
+                        minBaseAmount: '',
+                        maxCommission: '',
+                        appliesToRoles: ['sales_rep'],
+                        active: true,
+                      })
+                      setShowRulePanel(true)
+                    }}
+                    className="gap-1.5"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Rule
+                  </Button>
+                </div>
+
+                {commissionRules.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Percent className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No commission rules defined</p>
+                    <p className="text-xs">Create a rule to start tracking commissions</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {commissionRules.map((rule) => (
+                      <div 
+                        key={rule.id}
+                        className={`flex items-center justify-between p-3 rounded-lg border ${
+                          rule.active ? 'border-border bg-background' : 'border-border/50 bg-muted/30 opacity-60'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium truncate">{rule.name}</p>
+                            {!rule.active && (
+                              <Badge variant="outline" className="text-[10px]">Inactive</Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {rule.rateType === 'percentage' ? `${rule.rateValue}%` : `$${rule.rateValue}`} on {rule.triggerType.replace('_', ' ')}
+                            {rule.appliesToRoles && rule.appliesToRoles.length > 0 && (
+                              <span> · {rule.appliesToRoles.map(r => ROLE_LABELS[r as Role] || r).join(', ')}</span>
+                            )}
+                          </p>
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => {
+                              setEditingRule(rule)
+                              setRuleForm({
+                                name: rule.name,
+                                description: rule.description || '',
+                                triggerType: rule.triggerType,
+                                rateType: rule.rateType,
+                                rateValue: rule.rateValue.toString(),
+                                minBaseAmount: rule.minBaseAmount?.toString() || '',
+                                maxCommission: rule.maxCommission?.toString() || '',
+                                appliesToRoles: rule.appliesToRoles || ['sales_rep'],
+                                active: rule.active,
+                              })
+                              setShowRulePanel(true)
+                            }}>
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={async () => {
+                              const success = await updateCommissionRule(rule.id, { active: !rule.active })
+                              if (success) {
+                                setCommissionRules(prev => prev.map(r => 
+                                  r.id === rule.id ? { ...r, active: !r.active } : r
+                                ))
+                                toast.success(rule.active ? 'Rule deactivated' : 'Rule activated')
+                              } else {
+                                toast.error('Failed to update rule')
+                              }
+                            }}>
+                              {rule.active ? (
+                                <>
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Deactivate
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  Activate
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Commission List Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">Commissions</p>
+                <Select value={commissionFilter} onValueChange={(v) => setCommissionFilter(v as CommissionStatus | 'all')}>
+                  <SelectTrigger className="w-[130px] h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="earned">Earned</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="void">Void</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {hasPermission('manage_commissions') && commissions.filter(c => c.status === 'earned' || c.status === 'approved').length > 0 && (
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={async () => {
+                    const toPay = commissions.filter(c => c.status === 'earned' || c.status === 'approved')
+                    if (toPay.length === 0) return
+                    if (!confirm(`Mark ${toPay.length} commission(s) as paid?`)) return
+                    
+                    const { successCount } = await bulkMarkCommissionsPaid(toPay.map(c => c.id))
+                    if (successCount > 0) {
+                      toast.success(`${successCount} commission(s) marked as paid`)
+                      loadData()
+                    } else {
+                      toast.error('Failed to mark commissions as paid')
+                    }
+                  }}
+                  className="gap-1.5"
+                >
+                  <Check className="h-4 w-4" />
+                  Mark All Paid
+                </Button>
+              )}
+            </div>
+
+            {/* Commission List */}
+            {commissions.length === 0 ? (
+              <div className="text-center py-12">
+                <Award className="h-10 w-10 text-muted-foreground/50 mx-auto mb-3" />
+                <p className="text-muted-foreground">No commissions yet</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Commissions will appear here when triggered
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="divide-y divide-border">
+                  {commissions
+                    .filter(c => commissionFilter === 'all' || c.status === commissionFilter)
+                    .map((commission) => {
+                      const employee = employees.find(e => e.id === commission.employeeId)
+                      
+                      return (
+                        <div key={commission.id} className="flex items-center gap-4 p-4 hover:bg-secondary/30 transition-colors">
+                          {/* Avatar */}
+                          <div className="h-10 w-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                            <Award className="h-5 w-5 text-emerald-500" />
+                          </div>
+                          
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium truncate">{employee?.name || 'Unknown'}</p>
+                              <Badge 
+                                variant="outline" 
+                                className={`text-[10px] ${
+                                  commission.status === 'paid' 
+                                    ? 'bg-blue-500/10 text-blue-500 border-blue-500/30'
+                                    : commission.status === 'earned'
+                                      ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                                      : commission.status === 'approved'
+                                        ? 'bg-green-500/10 text-green-500 border-green-500/30'
+                                        : commission.status === 'void'
+                                          ? 'bg-red-500/10 text-red-500 border-red-500/30'
+                                          : 'bg-amber-500/10 text-amber-500 border-amber-500/30'
+                                }`}
+                              >
+                                {commission.status}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {commission.triggerType.replace('_', ' ')}
+                              {commission.rateType === 'percentage' ? ` · ${commission.rate}% of $${commission.baseAmount.toLocaleString()}` : ` · $${commission.rate} flat`}
+                              {commission.earnedAt && ` · Earned ${formatDate(commission.earnedAt)}`}
+                            </p>
+                          </div>
+                          
+                          {/* Amount */}
+                          <div className="text-right shrink-0">
+                            <p className="font-bold text-emerald-500 text-lg">
+                              ${commission.amount.toLocaleString()}
+                            </p>
+                          </div>
+                          
+                          {/* Actions */}
+                          {hasPermission('manage_commissions') && commission.status !== 'paid' && commission.status !== 'void' && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {commission.status === 'pending' && (
+                                  <DropdownMenuItem onClick={async () => {
+                                    const updated = await updateCommission(commission.id, { status: 'earned', earnedAt: new Date().toISOString() })
+                                    if (updated) {
+                                      setCommissions(prev => prev.map(c => 
+                                        c.id === commission.id ? { ...c, status: 'earned' as const, earnedAt: new Date().toISOString() } : c
+                                      ))
+                                      toast.success('Commission marked as earned')
+                                    } else {
+                                      toast.error('Failed to update commission')
+                                    }
+                                  }}>
+                                    <CheckCircle className="h-4 w-4 mr-2" />
+                                    Mark Earned
+                                  </DropdownMenuItem>
+                                )}
+                                {(commission.status === 'pending' || commission.status === 'earned') && (
+                                  <DropdownMenuItem onClick={async () => {
+                                    const updated = await updateCommission(commission.id, { status: 'approved', approvedAt: new Date().toISOString() })
+                                    if (updated) {
+                                      setCommissions(prev => prev.map(c => 
+                                        c.id === commission.id ? { ...c, status: 'approved' as const, approvedAt: new Date().toISOString() } : c
+                                      ))
+                                      toast.success('Commission approved')
+                                    } else {
+                                      toast.error('Failed to approve commission')
+                                    }
+                                  }}>
+                                    <CheckCircle className="h-4 w-4 mr-2" />
+                                    Approve
+                                  </DropdownMenuItem>
+                                )}
+                                {(commission.status === 'earned' || commission.status === 'approved') && (
+                                  <DropdownMenuItem onClick={async () => {
+                                    const updated = await updateCommission(commission.id, { status: 'paid', paidAt: new Date().toISOString() })
+                                    if (updated) {
+                                      setCommissions(prev => prev.map(c => 
+                                        c.id === commission.id ? { ...c, status: 'paid' as const, paidAt: new Date().toISOString() } : c
+                                      ))
+                                      toast.success('Commission marked as paid')
+                                    } else {
+                                      toast.error('Failed to update commission')
+                                    }
+                                  }}>
+                                    <DollarSign className="h-4 w-4 mr-2" />
+                                    Mark Paid
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem 
+                                  onClick={async () => {
+                                    if (!confirm('Void this commission?')) return
+                                    const updated = await updateCommission(commission.id, { status: 'void' })
+                                    if (updated) {
+                                      setCommissions(prev => prev.map(c => 
+                                        c.id === commission.id ? { ...c, status: 'void' as const } : c
+                                      ))
+                                      toast.success('Commission voided')
+                                    } else {
+                                      toast.error('Failed to void commission')
+                                    }
+                                  }}
+                                  className="text-destructive"
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Void
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Users Tab - Company Members with Roles */}
         {activeTab === 'users' && isAdmin && (
           <div className="space-y-6">
@@ -1022,22 +1423,28 @@ function TeamPageContent() {
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                     </div>
-                    <Badge 
-                      variant="outline" 
-                      className={`${
-                        member.role === 'admin' 
-                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/30' 
-                          : member.role === 'worker'
-                            ? 'bg-blue-500/10 text-blue-500 border-blue-500/30'
-                            : member.role === 'sales_rep'
-                              ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
-                              : member.role === 'dispatcher'
-                                ? 'bg-purple-500/10 text-purple-500 border-purple-500/30'
-                                : 'bg-muted text-muted-foreground'
-                      }`}
-                    >
-                      {ROLE_LABELS[member.role]}
-                    </Badge>
+<Badge 
+                                      variant="outline" 
+                                      className={`${
+                                        member.role === 'admin' 
+                                          ? 'bg-amber-500/10 text-amber-500 border-amber-500/30' 
+                                          : member.role === 'manager'
+                                            ? 'bg-orange-500/10 text-orange-500 border-orange-500/30'
+                                            : member.role === 'worker'
+                                              ? 'bg-blue-500/10 text-blue-500 border-blue-500/30'
+                                              : member.role === 'sales_rep'
+                                                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                                                : member.role === 'dispatcher'
+                                                  ? 'bg-purple-500/10 text-purple-500 border-purple-500/30'
+                                                  : member.role === 'office_staff'
+                                                    ? 'bg-pink-500/10 text-pink-500 border-pink-500/30'
+                                                    : member.role === 'accountant'
+                                                      ? 'bg-cyan-500/10 text-cyan-500 border-cyan-500/30'
+                                                      : 'bg-muted text-muted-foreground'
+                                      }`}
+                                    >
+                                      {ROLE_LABELS[member.role]}
+                                    </Badge>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
@@ -1204,13 +1611,15 @@ function TeamPageContent() {
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="worker">Worker</SelectItem>
-                    <SelectItem value="dispatcher">Dispatcher</SelectItem>
-                    <SelectItem value="sales_rep">Sales Rep</SelectItem>
-                    <SelectItem value="accountant">Accountant</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                  </SelectContent>
+<SelectContent>
+                                    <SelectItem value="worker">Worker</SelectItem>
+                                    <SelectItem value="dispatcher">Dispatcher</SelectItem>
+                                    <SelectItem value="office_staff">Office Staff</SelectItem>
+                                    <SelectItem value="sales_rep">Sales Rep</SelectItem>
+                                    <SelectItem value="manager">Manager</SelectItem>
+                                    <SelectItem value="accountant">Accountant</SelectItem>
+                                    <SelectItem value="admin">Admin</SelectItem>
+                                  </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-1">
                   {ROLE_DESCRIPTIONS[memberForm.role]}
@@ -1504,6 +1913,214 @@ function TeamPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Commission Rule Panel */}
+      <Sheet open={showRulePanel} onOpenChange={setShowRulePanel}>
+        <SheetContent className="w-full sm:max-w-md p-0 flex flex-col h-full">
+          <SheetHeader className="p-6 pb-4 border-b border-border shrink-0">
+            <SheetTitle>
+              {editingRule ? 'Edit Commission Rule' : 'Add Commission Rule'}
+            </SheetTitle>
+            <SheetDescription>
+              {editingRule ? 'Update commission rule settings' : 'Define how commissions are calculated'}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="space-y-4">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Rule Name *</Label>
+                <Input
+                  placeholder="e.g., Standard Sales Commission"
+                  value={ruleForm.name}
+                  onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })}
+                />
+              </div>
+              
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Description</Label>
+                <Input
+                  placeholder="Optional description"
+                  value={ruleForm.description}
+                  onChange={(e) => setRuleForm({ ...ruleForm, description: e.target.value })}
+                />
+              </div>
+              
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Trigger *</Label>
+                <Select 
+                  value={ruleForm.triggerType} 
+                  onValueChange={(v) => setRuleForm({ ...ruleForm, triggerType: v as CommissionTriggerType })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lead_created">Lead Created</SelectItem>
+                    <SelectItem value="job_created">Job Created</SelectItem>
+                    <SelectItem value="job_completed">Job Completed</SelectItem>
+                    <SelectItem value="invoice_paid">Invoice Paid</SelectItem>
+                    <SelectItem value="payment_received">Payment Received</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  When this event occurs, a commission will be created
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Rate Type</Label>
+                  <Select 
+                    value={ruleForm.rateType} 
+                    onValueChange={(v) => setRuleForm({ ...ruleForm, rateType: v as CommissionRateType })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percentage">Percentage</SelectItem>
+                      <SelectItem value="flat">Flat Amount</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">
+                    {ruleForm.rateType === 'percentage' ? 'Rate (%)' : 'Amount ($)'}
+                  </Label>
+                  <Input
+                    type="number"
+                    placeholder={ruleForm.rateType === 'percentage' ? '10' : '50'}
+                    value={ruleForm.rateValue}
+                    onChange={(e) => setRuleForm({ ...ruleForm, rateValue: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Min Base Amount</Label>
+                  <Input
+                    type="number"
+                    placeholder="Optional"
+                    value={ruleForm.minBaseAmount}
+                    onChange={(e) => setRuleForm({ ...ruleForm, minBaseAmount: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Max Commission</Label>
+                  <Input
+                    type="number"
+                    placeholder="Optional"
+                    value={ruleForm.maxCommission}
+                    onChange={(e) => setRuleForm({ ...ruleForm, maxCommission: e.target.value })}
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Applies to Roles</Label>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {(['sales_rep', 'worker', 'manager', 'dispatcher'] as Role[]).map(role => (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => {
+                        const roles = ruleForm.appliesToRoles.includes(role)
+                          ? ruleForm.appliesToRoles.filter(r => r !== role)
+                          : [...ruleForm.appliesToRoles, role]
+                        setRuleForm({ ...ruleForm, appliesToRoles: roles })
+                      }}
+                      className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                        ruleForm.appliesToRoles.includes(role)
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background text-muted-foreground border-border hover:border-primary/50'
+                      }`}
+                    >
+                      {ROLE_LABELS[role]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <Label className="text-sm">Active</Label>
+                <button
+                  type="button"
+                  onClick={() => setRuleForm({ ...ruleForm, active: !ruleForm.active })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    ruleForm.active ? 'bg-primary' : 'bg-muted'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      ruleForm.active ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6 pt-4 border-t border-border shrink-0">
+            <Button 
+              onClick={async () => {
+                if (!ruleForm.name.trim()) {
+                  toast.error('Rule name is required')
+                  return
+                }
+                if (!ruleForm.rateValue || parseFloat(ruleForm.rateValue) <= 0) {
+                  toast.error('Rate value must be greater than 0')
+                  return
+                }
+                
+                setIsSubmitting(true)
+                try {
+                  const ruleData = {
+                    name: ruleForm.name.trim(),
+                    description: ruleForm.description.trim() || undefined,
+                    triggerType: ruleForm.triggerType,
+                    rateType: ruleForm.rateType,
+                    rateValue: parseFloat(ruleForm.rateValue),
+                    minBaseAmount: ruleForm.minBaseAmount ? parseFloat(ruleForm.minBaseAmount) : undefined,
+                    maxCommission: ruleForm.maxCommission ? parseFloat(ruleForm.maxCommission) : undefined,
+                    appliesToRoles: ruleForm.appliesToRoles,
+                    active: ruleForm.active,
+                  }
+                  
+                  if (editingRule) {
+                    const success = await updateCommissionRule(editingRule.id, ruleData)
+                    if (success) {
+                      setCommissionRules(prev => prev.map(r => 
+                        r.id === editingRule.id ? { ...r, ...ruleData } : r
+                      ))
+                      toast.success('Rule updated')
+                      setShowRulePanel(false)
+                    } else {
+                      toast.error('Failed to update rule')
+                    }
+                  } else {
+                    const newRule = await addCommissionRule(ruleData)
+                    if (newRule) {
+                      setCommissionRules(prev => [newRule, ...prev])
+                      toast.success('Rule created')
+                      setShowRulePanel(false)
+                    } else {
+                      toast.error('Failed to create rule')
+                    }
+                  }
+                } finally {
+                  setIsSubmitting(false)
+                }
+              }}
+              disabled={isSubmitting}
+              className="w-full"
+            >
+              {isSubmitting ? 'Saving...' : editingRule ? 'Save Changes' : 'Create Rule'}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </AppShell>
   )
 }
