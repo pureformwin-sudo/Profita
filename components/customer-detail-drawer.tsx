@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { Customer, Job, Estimate, Invoice, Income } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { CustomerPortalLink } from '@/components/customer-portal-link'
 
 interface CustomerDetailDrawerProps {
   customer: Customer | null
@@ -206,7 +207,7 @@ export function CustomerDetailDrawer({
                 {/* Quick Actions */}
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium text-muted-foreground">Quick Actions</h3>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     <Button 
                       variant="outline" 
                       size="sm" 
@@ -234,6 +235,10 @@ export function CustomerDetailDrawer({
                       <Receipt className="h-4 w-4" />
                       <span className="text-xs">Invoice</span>
                     </Button>
+                    <CustomerPortalLink
+                      customerId={customer.id}
+                      customerName={customer.name}
+                    />
                   </div>
                 </div>
 
