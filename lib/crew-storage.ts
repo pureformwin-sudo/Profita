@@ -189,15 +189,37 @@ export async function getJobCrewMembers(jobId: string): Promise<CrewMember[]> {
 
 /**
  * Update job status (crew-safe version with state machine validation)
+ * 
+ * Security: Verifies user is assigned to the job via job_workers before allowing update
  */
 export async function updateJobStatus(
   jobId: string, 
   newStatus: CrewJobStatus,
-  options?: { skipValidation?: boolean }
+  options?: { skipValidation?: boolean; skipAssignmentCheck?: boolean }
 ): Promise<{ success: boolean; error: string | null }> {
   const supabase = createClient()
   
-  // First, check current status
+  // Verify user is assigned to this job (unless admin/owner with skipAssignmentCheck)
+  if (!options?.skipAssignmentCheck) {
+    const { employeeId, error: empError } = await getMyEmployeeId()
+    if (empError || !employeeId) {
+      return { success: false, error: 'Not authorized - no crew profile found' }
+    }
+    
+    // Check if this employee is assigned to the job
+    const { data: assignment } = await supabase
+      .from('job_workers')
+      .select('id')
+      .eq('job_id', jobId)
+      .eq('employee_id', employeeId)
+      .maybeSingle()
+    
+    if (!assignment) {
+      return { success: false, error: 'Not authorized - you are not assigned to this job' }
+    }
+  }
+  
+  // Fetch current status
   const { data: job, error: fetchError } = await supabase
     .from('jobs')
     .select('status')
@@ -316,6 +338,8 @@ export async function getJobHistory(jobId: string): Promise<{
 
 /**
  * Sync clock out to time_entries for payroll
+ * Uses member_id (company_members.id) not employee_id
+ * Prevents duplicates by checking for existing entry with same job_id + member_id + start_time
  */
 export async function syncClockOutToTimeEntry(
   jobId: string,
@@ -325,32 +349,65 @@ export async function syncClockOutToTimeEntry(
 ): Promise<void> {
   const supabase = createClient()
   
-  // Calculate hours
+  // Calculate duration
   const startDate = new Date(clockInTime)
   const endDate = new Date(clockOutTime)
-  const hours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)
+  const durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60))
+  
+  // Validate duration
+  if (durationMinutes <= 0 || durationMinutes > 24 * 60) {
+    console.error('[Crew] Invalid duration for time entry:', durationMinutes)
+    return
+  }
 
-  // Get company_id from employee
+  // Get member_id from company_members using employee's user_id
   const { data: emp } = await supabase
     .from('employees')
-    .select('company_id')
+    .select('user_id')
     .eq('id', employeeId)
     .single()
 
-  if (!emp?.company_id) return
+  if (!emp?.user_id) {
+    console.error('[Crew] Employee has no user_id, cannot create time_entry')
+    return
+  }
 
-  // Insert time entry
+  const { data: member } = await supabase
+    .from('company_members')
+    .select('id')
+    .eq('user_id', emp.user_id)
+    .maybeSingle()
+
+  if (!member?.id) {
+    console.error('[Crew] No company_member found for employee')
+    return
+  }
+
+  // Check for existing time entry to prevent duplicates
+  const { data: existing } = await supabase
+    .from('time_entries')
+    .select('id')
+    .eq('job_id', jobId)
+    .eq('member_id', member.id)
+    .eq('start_time', startDate.toISOString())
+    .maybeSingle()
+
+  if (existing) {
+    console.log('[Crew] Time entry already exists, skipping duplicate')
+    return
+  }
+
+  // Insert time entry with correct schema
   const { error } = await supabase
     .from('time_entries')
     .insert({
-      company_id: emp.company_id,
-      employee_id: employeeId,
+      member_id: member.id,
       job_id: jobId,
-      date: startDate.toISOString().split('T')[0],
-      hours: Math.round(hours * 100) / 100, // Round to 2 decimals
+      start_time: startDate.toISOString(),
+      end_time: endDate.toISOString(),
+      duration_minutes: durationMinutes,
       entry_type: 'job',
-      status: 'pending',
-      notes: `Auto-synced from job clock events`,
+      notes: 'Auto-synced from job clock events',
     })
 
   if (error) {
