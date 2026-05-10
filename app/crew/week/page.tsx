@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { AppShell } from '@/components/app-shell'
 import { Card, CardContent } from '@/components/ui/card'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
-import { Briefcase, Clock, Calendar } from 'lucide-react'
+import { Briefcase, Clock, Calendar, CheckCircle2, PlayCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { Badge } from '@/components/ui/badge'
+import { STATUS_COLORS } from '@/lib/crew-storage'
 
 interface CrewJob {
   id: string
@@ -144,27 +146,51 @@ export default function CrewWeekPage() {
                 )}
               </div>
               <div className="space-y-2">
-                {dayJobs.map((job) => (
-                  <Link key={job.id} href={`/crew/job/${job.id}`}>
-                    <Card className="hover:bg-muted/40 transition-colors cursor-pointer">
-                      <CardContent className="p-3 flex items-center gap-3">
-                        <div className="shrink-0 p-2 rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
-                          <Briefcase className="h-4 w-4 text-emerald-500" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{job.title}</p>
-                          <p className="text-xs text-muted-foreground truncate">{job.customer_name}</p>
-                        </div>
-                        {job.scheduled_time && (
-                          <span className="text-xs text-muted-foreground inline-flex items-center gap-1 shrink-0">
-                            <Clock className="h-3 w-3" />
-                            {job.scheduled_time}
-                          </span>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))}
+                {dayJobs.map((job) => {
+                  const colors = STATUS_COLORS[job.status] || STATUS_COLORS['Scheduled']
+                  const isCompleted = job.status === 'Completed' || job.status === 'Paid'
+                  const isInProgress = job.status === 'In Progress'
+                  
+                  return (
+                    <Link key={job.id} href={`/crew/job/${job.id}`}>
+                      <Card className={`hover:bg-muted/40 transition-colors cursor-pointer ${isCompleted ? 'opacity-60' : ''}`}>
+                        <CardContent className="p-3 flex items-center gap-3">
+                          <div className={`shrink-0 p-2 rounded-lg ${
+                            isCompleted ? 'bg-emerald-500/10' : 
+                            isInProgress ? 'bg-blue-500/10' : 
+                            'bg-muted'
+                          }`}>
+                            {isCompleted ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            ) : isInProgress ? (
+                              <PlayCircle className="h-4 w-4 text-blue-500" />
+                            ) : (
+                              <Briefcase className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{job.title}</p>
+                            <p className="text-xs text-muted-foreground truncate">{job.customer_name}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {job.scheduled_time && (
+                              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {job.scheduled_time}
+                              </span>
+                            )}
+                            <Badge 
+                              variant="outline" 
+                              className={`text-[10px] ${colors.bg} ${colors.text} ${colors.border}`}
+                            >
+                              {job.status}
+                            </Badge>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  )
+                })}
               </div>
             </div>
           )
