@@ -596,6 +596,7 @@ export async function markUpcomingExpensePaid(id: string, paymentMethod: string)
   if (fetchError || !upcoming) return false
 
   // Create actual expense record
+  // Note: expenses table uses 'description' not 'vendor'
   const { error: insertError } = await supabase
     .from('expenses')
     .insert({
@@ -603,7 +604,7 @@ export async function markUpcomingExpensePaid(id: string, paymentMethod: string)
       company_id: companyId,
       amount: upcoming.amount,
       category: upcoming.category || 'Other',
-      vendor: upcoming.name,
+      description: upcoming.name, // Use description field for the expense name
       date: new Date().toISOString().split('T')[0],
       notes: upcoming.notes,
       payment_method: paymentMethod,
