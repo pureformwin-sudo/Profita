@@ -12,12 +12,28 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   ArrowLeft, Clock, Camera, MapPin, Phone, CheckCircle2, Briefcase,
   PlayCircle, StopCircle, ImageIcon, Upload, AlertCircle, Loader2,
+  Users, History, ChevronDown, Navigation,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   getJobEvents, isClockedIn, logClockEvent, totalHoursFromEvents,
   type JobClockEvent,
 } from '@/lib/clock-storage'
+import {
+  updateJobStatus,
+  getJobCrewMembers,
+  getJobHistory,
+  CREW_STATUS_TRANSITIONS,
+  STATUS_COLORS,
+  type CrewJobStatus,
+  type CrewMember,
+} from '@/lib/crew-storage'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface JobDetail {
   id: string
@@ -57,6 +73,14 @@ export default function CrewJobDetailPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
+  const [crewMembers, setCrewMembers] = useState<CrewMember[]>([])
+  const [jobHistory, setJobHistory] = useState<Array<{
+    id: string
+    type: string
+    timestamp: string
+    actor: string | null
+    details: string | null
+  }>>([])
 
   const beforeInputRef = useRef<HTMLInputElement>(null)
   const afterInputRef = useRef<HTMLInputElement>(null)
@@ -117,6 +141,12 @@ export default function CrewJobDetailPage() {
       .eq('job_id', jobId)
       .order('created_at', { ascending: true })
     setPhotos((photoData as JobPhoto[]) || [])
+
+    // Load crew members and history
+    const crew = await getJobCrewMembers(jobId)
+    setCrewMembers(crew)
+    const { events: history } = await getJobHistory(jobId)
+    setJobHistory(history)
 
     setLoading(false)
   }
@@ -229,6 +259,25 @@ export default function CrewJobDetailPage() {
     setJob({ ...job, status: 'Completed' })
   }
 
+  const onStatusChange = async (newStatus: CrewJobStatus) => {
+    if (!job) return
+    setBusy('status')
+    const result = await updateJobStatus(job.id, newStatus)
+    setBusy(null)
+    if (result.success) {
+      toast.success(`Status updated to ${newStatus}`)
+      setJob({ ...job, status: newStatus })
+    } else {
+      toast.error(result.error || 'Failed to update status')
+    }
+  }
+
+  const getStatusColors = (status: string) => {
+    return STATUS_COLORS[status] || STATUS_COLORS['Scheduled']
+  }
+
+  const availableTransitions = job ? (CREW_STATUS_TRANSITIONS[job.status] || []) : []
+
   if (loading) {
     return (
       <AppShell>
@@ -267,22 +316,53 @@ export default function CrewJobDetailPage() {
   return (
     <AppShell>
       <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-5 max-w-4xl mx-auto w-full overflow-x-hidden">
-        {/* Header */}
+{/* Header */}
         <div className="flex items-center gap-2">
-          <Button asChild variant="ghost" size="icon">
+          <Button asChild variant="ghost" size="icon" className="h-10 w-10">
             <Link href="/crew/today"><ArrowLeft className="h-5 w-5" /></Link>
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold truncate">{job.title}</h1>
             <p className="text-xs text-muted-foreground truncate">
-              {job.service || 'Job'} · {job.scheduled_time || 'No time'}
+              {job.service || 'Job'} &middot; {job.scheduled_time || 'No time'}
             </p>
           </div>
-          <Badge variant={
-            job.status === 'Completed' || job.status === 'Paid' ? 'default' : 'secondary'
-          }>
-            {job.status}
-          </Badge>
+          {availableTransitions.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  disabled={busy === 'status'}
+                  className={`${getStatusColors(job.status).bg} ${getStatusColors(job.status).text} ${getStatusColors(job.status).border}`}
+                >
+                  {busy === 'status' ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  ) : null}
+                  {job.status}
+                  <ChevronDown className="h-4 w-4 ml-1.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {availableTransitions.map((status) => (
+                  <DropdownMenuItem 
+                    key={status} 
+                    onClick={() => onStatusChange(status)}
+                    className={`${getStatusColors(status).text}`}
+                  >
+                    {status}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Badge 
+              variant="outline"
+              className={`${getStatusColors(job.status).bg} ${getStatusColors(job.status).text} ${getStatusColors(job.status).border}`}
+            >
+              {job.status}
+            </Badge>
+          )}
         </div>
 
         {/* Customer */}
@@ -321,6 +401,33 @@ export default function CrewJobDetailPage() {
                     </a>
                   </Button>
                 )}
+</div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Assigned Crew */}
+        {crewMembers.length > 0 && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Assigned Crew ({crewMembers.length})
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {crewMembers.map((member) => (
+                  <div 
+                    key={member.id}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/50 text-sm"
+                  >
+                    <div className="h-6 w-6 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500 text-xs font-semibold">
+                      {member.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="truncate max-w-[120px]">{member.name}</span>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -411,16 +518,66 @@ export default function CrewJobDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Complete */}
+{/* Complete */}
         <Button
           size="lg"
-          className="w-full"
+          className="w-full h-12"
           onClick={onMarkComplete}
           disabled={busy === 'complete' || job.status === 'Completed' || job.status === 'Paid'}
         >
           <CheckCircle2 className="h-5 w-5 mr-2" />
           {job.status === 'Completed' || job.status === 'Paid' ? 'Job Completed' : 'Mark Job Complete'}
         </Button>
+
+        {/* Activity History */}
+        {jobHistory.length > 0 && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                  Activity
+                </p>
+              </div>
+              <div className="space-y-3">
+                {jobHistory.slice(0, 10).map((event) => (
+                  <div key={event.id} className="flex items-start gap-3">
+                    <div className={`shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${
+                      event.type === 'clock_in' ? 'bg-emerald-500/10 text-emerald-500' :
+                      event.type === 'clock_out' ? 'bg-red-500/10 text-red-500' :
+                      event.type === 'note' ? 'bg-blue-500/10 text-blue-500' :
+                      event.type.includes('photo') ? 'bg-purple-500/10 text-purple-500' :
+                      'bg-muted text-muted-foreground'
+                    }`}>
+                      {event.type === 'clock_in' && <PlayCircle className="h-4 w-4" />}
+                      {event.type === 'clock_out' && <StopCircle className="h-4 w-4" />}
+                      {event.type === 'note' && <Upload className="h-4 w-4" />}
+                      {event.type.includes('photo') && <Camera className="h-4 w-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium capitalize">
+                        {event.type.replace(/_/g, ' ')}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {event.actor && <span>{event.actor} &middot; </span>}
+                        {new Date(event.timestamp).toLocaleTimeString(undefined, { 
+                          hour: 'numeric', 
+                          minute: '2-digit',
+                          hour12: true 
+                        })}
+                      </p>
+                      {event.details && (
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                          {event.details}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AppShell>
   )
