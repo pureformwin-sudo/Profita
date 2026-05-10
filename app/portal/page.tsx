@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { 
@@ -30,7 +30,7 @@ import {
   type PortalBooking,
 } from '@/lib/portal-storage'
 
-export default function PortalDashboard() {
+function PortalDashboardContent() {
   const { customer, token } = usePortal()
   const searchParams = useSearchParams()
   const tokenParam = searchParams.get('token') || token
@@ -306,5 +306,19 @@ export default function PortalDashboard() {
         )
       )}
     </div>
+  )
+}
+
+export default function PortalDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <PortalDashboardContent />
+    </Suspense>
   )
 }

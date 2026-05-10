@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Receipt, Loader2, CheckCircle, CreditCard } from 'lucide-react'
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { usePortal } from '../../layout'
 import { getPortalInvoice, type PortalInvoice } from '@/lib/portal-storage'
 
-export default function PortalInvoiceDetailPage() {
+function PortalInvoiceDetailContent() {
   const params = useParams()
   const { customer, token } = usePortal()
   const searchParams = useSearchParams()
@@ -178,5 +178,19 @@ export default function PortalInvoiceDetailPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function PortalInvoiceDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <PortalInvoiceDetailContent />
+    </Suspense>
   )
 }

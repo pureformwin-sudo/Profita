@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { FileText, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react'
@@ -17,7 +17,7 @@ const statusConfig: Record<string, { color: string; icon: typeof Clock }> = {
   expired: { color: 'text-gray-600 border-gray-200 bg-gray-50', icon: XCircle },
 }
 
-export default function PortalEstimatesPage() {
+function PortalEstimatesContent() {
   const { customer, token } = usePortal()
   const searchParams = useSearchParams()
   const tokenParam = searchParams.get('token') || token
@@ -110,5 +110,19 @@ export default function PortalEstimatesPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function PortalEstimatesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <PortalEstimatesContent />
+    </Suspense>
   )
 }

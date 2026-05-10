@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, FileText, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react'
@@ -17,7 +17,7 @@ import {
 } from '@/lib/portal-storage'
 import { toast } from 'sonner'
 
-export default function PortalEstimateDetailPage() {
+function PortalEstimateDetailContent() {
   const params = useParams()
   const router = useRouter()
   const { customer, token } = usePortal()
@@ -259,5 +259,19 @@ export default function PortalEstimateDetailPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function PortalEstimateDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <PortalEstimateDetailContent />
+    </Suspense>
   )
 }

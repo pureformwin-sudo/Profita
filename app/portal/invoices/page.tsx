@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Receipt, Loader2, CheckCircle, Clock, AlertCircle } from 'lucide-react'
@@ -18,7 +18,7 @@ const statusConfig: Record<string, { color: string; icon: typeof Clock }> = {
   Draft: { color: 'text-gray-600 border-gray-200 bg-gray-50', icon: Receipt },
 }
 
-export default function PortalInvoicesPage() {
+function PortalInvoicesContent() {
   const { customer, token } = usePortal()
   const searchParams = useSearchParams()
   const tokenParam = searchParams.get('token') || token
@@ -159,5 +159,19 @@ export default function PortalInvoicesPage() {
         </>
       )}
     </div>
+  )
+}
+
+export default function PortalInvoicesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <PortalInvoicesContent />
+    </Suspense>
   )
 }

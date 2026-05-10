@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MessageSquarePlus, Send, CheckCircle, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -28,7 +28,7 @@ const serviceTypes = [
   'Other',
 ]
 
-export default function RequestServicePage() {
+function RequestServiceContent() {
   const { customer, token } = usePortal()
   const searchParams = useSearchParams()
 
@@ -206,5 +206,19 @@ export default function RequestServicePage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function RequestServicePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <RequestServiceContent />
+    </Suspense>
   )
 }
