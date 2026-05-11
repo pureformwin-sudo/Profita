@@ -85,11 +85,19 @@ export default function PayInvoicePage() {
 
   const startCheckout = useCallback(
     async () => {
-      const clientSecret = await createInvoicePaymentSession(invoiceId)
-      if (!clientSecret) {
-        throw new Error('Failed to create checkout session')
+      try {
+        const clientSecret = await createInvoicePaymentSession(invoiceId)
+        if (!clientSecret) {
+          throw new Error('Failed to create checkout session')
+        }
+        return clientSecret
+      } catch (err) {
+        const error = err as Error
+        console.error('[v0] Checkout error:', error.message)
+        setError(error.message || 'Unable to start payment. Please try again.')
+        setShowCheckout(false)
+        throw error
       }
-      return clientSecret
     },
     [invoiceId]
   )
@@ -139,8 +147,24 @@ export default function PayInvoicePage() {
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center">
             <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <h2 className="text-xl font-semibold mb-2">Invoice Not Found</h2>
-            <p className="text-muted-foreground">This invoice may have been deleted or the link is invalid.</p>
+            <h2 className="text-xl font-semibold mb-2">
+              {error === 'Invoice not found' ? 'Invoice Not Found' : 'Payment Error'}
+            </h2>
+            <p className="text-muted-foreground">
+              {error || 'This invoice may have been deleted or the link is invalid.'}
+            </p>
+            {error && error !== 'Invoice not found' && (
+              <Button 
+                variant="outline" 
+                className="mt-4"
+                onClick={() => {
+                  setError(null)
+                  setShowCheckout(false)
+                }}
+              >
+                Try Again
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>
