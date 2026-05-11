@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, createContext, useContext } from 'react'
+import { Suspense, useState, useEffect, createContext, useContext } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -101,9 +101,21 @@ function PortalNav({ token }: { token: string }) {
   )
 }
 
-export default function PortalLayout({ children }: { children: React.ReactNode }) {
+// Loading fallback for portal
+function PortalLoadingFallback() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center">
+      <div className="text-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+        <p className="text-muted-foreground">Loading your portal...</p>
+      </div>
+    </div>
+  )
+}
+
+// Inner layout component that uses useSearchParams
+function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams()
-  const router = useRouter()
   const token = searchParams.get('token')
 
   const [customer, setCustomer] = useState<PortalCustomer | null>(null)
@@ -134,14 +146,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }, [token])
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading your portal...</p>
-        </div>
-      </div>
-    )
+    return <PortalLoadingFallback />
   }
 
   if (error || !customer || !token) {
@@ -224,5 +229,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         </nav>
       </div>
     </PortalContext.Provider>
+  )
+}
+
+// Main layout export with Suspense boundary
+export default function PortalLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<PortalLoadingFallback />}>
+      <PortalLayoutInner>{children}</PortalLayoutInner>
+    </Suspense>
   )
 }
