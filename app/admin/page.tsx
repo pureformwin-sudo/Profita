@@ -232,17 +232,15 @@ export default function AdminDashboardPage() {
                 <span>Users</span>
               </Link>
             </Button>
-            <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2">
-              <Link href="/admin/audit">
-                <Activity className="h-5 w-5" />
-                <span>Audit Log</span>
-              </Link>
+            <Button variant="outline" className="h-auto py-4 flex-col gap-2 opacity-50" disabled>
+              <Activity className="h-5 w-5" />
+              <span>Audit Log</span>
+              <Badge variant="secondary" className="text-[10px]">Soon</Badge>
             </Button>
-            <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2">
-              <Link href="/admin/billing">
-                <DollarSign className="h-5 w-5" />
-                <span>Billing</span>
-              </Link>
+            <Button variant="outline" className="h-auto py-4 flex-col gap-2 opacity-50" disabled>
+              <DollarSign className="h-5 w-5" />
+              <span>Billing</span>
+              <Badge variant="secondary" className="text-[10px]">Soon</Badge>
             </Button>
           </div>
         </CardContent>

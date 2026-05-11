@@ -3,7 +3,16 @@
 import { getStripe } from '@/lib/stripe'
 import { createClient } from '@/lib/supabase/server'
 import { headers } from 'next/headers'
-import Stripe from 'stripe'
+import type Stripe from 'stripe'
+
+// Custom type for Stripe errors since Stripe.errors.StripeError is a value, not a type
+interface StripeErrorLike {
+  type?: string
+  code?: string
+  param?: string
+  statusCode?: number
+  raw?: unknown
+}
 
 export async function createInvoicePaymentSession(invoiceId: string): Promise<string> {
   console.log('[Stripe] === Starting payment session creation ===')
@@ -134,7 +143,7 @@ export async function createInvoicePaymentSession(invoiceId: string): Promise<st
     return session.client_secret
   } catch (err) {
     // Detailed error logging
-    const error = err as Error & Stripe.errors.StripeError
+    const error = err as Error & StripeErrorLike
     
     console.error('[Stripe] === ERROR DETAILS ===')
     console.error('[Stripe] Error message:', error.message)
