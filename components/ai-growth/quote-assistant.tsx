@@ -1,0 +1,324 @@
+'use client'
+
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Sparkles, DollarSign, Clock, TrendingUp, Target, ChevronUp, Loader2, FileText, ArrowRight } from 'lucide-react'
+import { toast } from 'sonner'
+
+interface QuoteResult {
+  price: number
+  timeMinutes: number
+  profit: number
+  confidence: number
+  upsells: Array<{ name: string; price: number }>
+}
+
+interface QuoteAssistantProps {
+  onCreateEstimate?: (data: {
+    propertyType: string
+    stories: string
+    windows: string
+    sqft: string
+    solar: boolean
+    gutters: boolean
+    difficulty: string
+    location: string
+    price: number
+    upsells: Array<{ name: string; price: number }>
+  }) => void
+}
+
+export function QuoteAssistant({ onCreateEstimate }: QuoteAssistantProps) {
+  const [propertyType, setPropertyType] = useState<'home' | 'commercial'>('home')
+  const [stories, setStories] = useState('1')
+  const [windows, setWindows] = useState('')
+  const [sqft, setSqft] = useState('')
+  const [solar, setSolar] = useState<'yes' | 'no'>('no')
+  const [gutters, setGutters] = useState<'yes' | 'no'>('no')
+  const [difficulty, setDifficulty] = useState<'easy' | 'med' | 'hard'>('med')
+  const [location, setLocation] = useState('')
+
+  const [generating, setGenerating] = useState(false)
+  const [result, setResult] = useState<QuoteResult | null>(null)
+
+  const handleGenerate = (e: React.FormEvent) => {
+    e.preventDefault()
+    setGenerating(true)
+    setResult(null)
+
+    setTimeout(() => {
+      // Simulated pricing logic (replaceable with real AI)
+      const windowCount = parseInt(windows) || 0
+      const storyNum = parseInt(stories) || 1
+      const squareFt = parseInt(sqft) || 0
+
+      const basePerWindow = propertyType === 'commercial' ? 9 : 7
+      const storyMultiplier = storyNum === 1 ? 1 : storyNum === 2 ? 1.3 : 1.6
+      const difficultyMultiplier = difficulty === 'easy' ? 1 : difficulty === 'med' ? 1.15 : 1.35
+
+      const windowRevenue = windowCount * basePerWindow * storyMultiplier * difficultyMultiplier
+      const sqftRevenue = squareFt * 0.04
+      const baseRevenue = Math.max(windowRevenue, sqftRevenue, 89)
+
+      const price = Math.round(baseRevenue / 5) * 5 // round to $5
+
+      // Estimated time: ~1.5 min per window, adjusted
+      const timeMinutes = Math.max(45, Math.round(windowCount * 1.5 * storyMultiplier * difficultyMultiplier))
+
+      const costs = timeMinutes * 0.8 // ~$48/hr blended cost
+      const profit = Math.round(price - costs)
+
+      const confidence = Math.min(95, 60 + windowCount * 0.5 + (squareFt > 0 ? 10 : 0) + (location ? 5 : 0))
+
+      const upsells: QuoteResult['upsells'] = []
+      if (solar === 'yes') upsells.push({ name: 'Solar panel cleaning', price: 120 })
+      if (gutters === 'yes') upsells.push({ name: 'Gutter cleaning', price: 90 })
+      if (upsells.length === 0) {
+        upsells.push({ name: 'Add gutter cleaning', price: 90 })
+        upsells.push({ name: 'Add screen cleaning', price: 60 })
+      }
+
+      setResult({
+        price,
+        timeMinutes,
+        profit,
+        confidence: Math.round(confidence),
+        upsells,
+      })
+      setGenerating(false)
+    }, 900)
+  }
+
+  const formatTime = (minutes: number) => {
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    if (h === 0) return `${m}m`
+    if (m === 0) return `${h}h`
+    return `${h}h ${m}m`
+  }
+
+  const handleCreateEstimate = () => {
+    if (!result) return
+
+    if (onCreateEstimate) {
+      onCreateEstimate({
+        propertyType,
+        stories,
+        windows,
+        sqft,
+        solar: solar === 'yes',
+        gutters: gutters === 'yes',
+        difficulty,
+        location,
+        price: result.price,
+        upsells: result.upsells,
+      })
+      toast.success('Opening estimate form with generated data')
+    } else {
+      // Build description from inputs
+      const descriptionParts = [
+        `Window Cleaning - ${propertyType === 'commercial' ? 'Commercial' : 'Residential'}`,
+        windows ? `${windows} windows` : null,
+        stories !== '1' ? `${stories} stories` : null,
+        sqft ? `${sqft} sqft` : null,
+        location ? `Location: ${location}` : null,
+      ].filter(Boolean)
+      
+      // Build line items
+      const lineItems = [
+        { description: descriptionParts.join(' | '), quantity: 1, unitPrice: result.price },
+        ...result.upsells.map(u => ({ description: u.name, quantity: 1, unitPrice: u.price }))
+      ]
+
+      // Navigate to invoices with pre-filled data
+      const params = new URLSearchParams({
+        action: 'estimate',
+        prefillItems: JSON.stringify(lineItems),
+        notes: `Generated by AI Quote Assistant\nDifficulty: ${difficulty}\nEstimated time: ${formatTime(result.timeMinutes)}`,
+      })
+      window.location.href = `/invoices?${params.toString()}`
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden h-full">
+      <div className="p-5 border-b border-border">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center">
+            <Sparkles className="h-4 w-4 text-primary" />
+          </div>
+          <h3 className="font-semibold">AI Quote Assistant</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1.5 ml-10">
+          Generate a recommended price, time estimate, and upsells
+        </p>
+      </div>
+
+      <form onSubmit={handleGenerate} className="p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Property Type</Label>
+            <Select value={propertyType} onValueChange={(v) => setPropertyType(v as 'home' | 'commercial')}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="home">Home</SelectItem>
+                <SelectItem value="commercial">Commercial</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Stories</Label>
+            <Select value={stories} onValueChange={setStories}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">1 story</SelectItem>
+                <SelectItem value="2">2 stories</SelectItem>
+                <SelectItem value="3">3+ stories</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Windows</Label>
+            <Input type="number" placeholder="e.g. 24" value={windows} onChange={(e) => setWindows(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Square Footage</Label>
+            <Input type="number" placeholder="e.g. 2400" value={sqft} onChange={(e) => setSqft(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Solar Panels</Label>
+            <Select value={solar} onValueChange={(v) => setSolar(v as 'yes' | 'no')}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no">No</SelectItem>
+                <SelectItem value="yes">Yes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Gutters</Label>
+            <Select value={gutters} onValueChange={(v) => setGutters(v as 'yes' | 'no')}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no">No</SelectItem>
+                <SelectItem value="yes">Yes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Difficulty</Label>
+            <Select value={difficulty} onValueChange={(v) => setDifficulty(v as 'easy' | 'med' | 'hard')}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="easy">Easy</SelectItem>
+                <SelectItem value="med">Medium</SelectItem>
+                <SelectItem value="hard">Hard</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Location</Label>
+            <Input placeholder="e.g. Scottsdale" value={location} onChange={(e) => setLocation(e.target.value)} />
+          </div>
+        </div>
+
+        <Button
+          type="submit"
+          disabled={generating}
+          className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary hover:to-primary/90 shadow-lg shadow-primary/20"
+        >
+          {generating ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-4 w-4 mr-2" />
+              Generate Quote
+            </>
+          )}
+        </Button>
+
+        {result && (
+          <div className="space-y-3 pt-2">
+            {/* Main result grid */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-lg border border-primary/20 bg-gradient-to-br from-primary/10 to-primary/5 p-3">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                  <DollarSign className="h-3 w-3" />
+                  Price
+                </div>
+                <p className="text-xl font-bold">${result.price}</p>
+              </div>
+              <div className="rounded-lg border border-blue-500/20 bg-gradient-to-br from-blue-500/10 to-blue-500/5 p-3">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                  <Clock className="h-3 w-3" />
+                  Time
+                </div>
+                <p className="text-xl font-bold">{formatTime(result.timeMinutes)}</p>
+              </div>
+              <div className="rounded-lg border border-green-500/20 bg-gradient-to-br from-green-500/10 to-green-500/5 p-3">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                  <TrendingUp className="h-3 w-3" />
+                  Profit
+                </div>
+                <p className="text-xl font-bold text-green-500">${result.profit}</p>
+              </div>
+            </div>
+
+            {/* Confidence */}
+            <div className="rounded-lg border border-border bg-secondary/30 p-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Target className="h-3 w-3" />
+                  Confidence Score
+                </span>
+                <span className="text-sm font-semibold">{result.confidence}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-background overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-primary/70 transition-all duration-500"
+                  style={{ width: `${result.confidence}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Upsells */}
+            <div className="rounded-lg border border-border bg-secondary/30 p-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <ChevronUp className="h-3 w-3 text-green-500" />
+                <span className="text-xs font-medium">Upsell Suggestions</span>
+              </div>
+              <div className="space-y-1.5">
+                {result.upsells.map((u, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm">
+                    <span>{u.name}</span>
+                    <span className="font-medium text-green-500">+${u.price}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Create Estimate Button */}
+            <Button
+              type="button"
+              onClick={handleCreateEstimate}
+              className="w-full bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Create Estimate from This
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
+            <p className="text-xs text-center text-muted-foreground">
+              Total with upsells: ${result.price + result.upsells.reduce((s, u) => s + u.price, 0)}
+            </p>
+          </div>
+        )}
+      </form>
+    </div>
+  )
+}
