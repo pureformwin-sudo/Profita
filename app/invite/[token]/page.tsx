@@ -8,10 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { Loader2, CheckCircle, XCircle } from 'lucide-react'
+import { Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
 import Image from 'next/image'
+import Link from 'next/link'
 
-type InviteStatus = 'loading' | 'valid' | 'invalid' | 'expired' | 'accepted'
+type InviteStatus = 'loading' | 'valid' | 'invalid' | 'expired' | 'accepted' | 'error' | 'needs_login'
 
 interface InviteData {
   id: string
@@ -31,45 +32,97 @@ export default function InvitePage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string>('')
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
   
   useEffect(() => {
     validateInvite()
   }, [token])
   
   const validateInvite = async () => {
-    const supabase = createClient()
-    
-    // Look up the invite by token
-    const { data, error } = await supabase
-      .rpc('get_invite_by_token', { p_token: token })
-    
-    // RPC returns an array, get the first row
-    const invite = Array.isArray(data) ? data[0] : data
-    
-    if (error || !invite) {
-      console.error('Error validating invite:', error)
-      setStatus('invalid')
-      return
+    try {
+      const supabase = createClient()
+      
+      // Check if user is already logged in
+      const { data: { user } } = await supabase.auth.getUser()
+      setIsLoggedIn(!!user)
+      
+      // First try direct query to company_members (fallback if RPC doesn't exist)
+      let invite = null
+      let companyName = ''
+      
+      // Try RPC first
+      const { data: rpcData, error: rpcError } = await supabase
+        .rpc('get_invite_by_token', { p_token: token })
+      
+      if (rpcError) {
+        console.log('[v0] RPC not available, trying direct query:', rpcError.message)
+        
+        // Fallback: Direct query to company_members
+        const { data: memberData, error: memberError } = await supabase
+          .from('company_members')
+          .select(`
+            id,
+            email,
+            name,
+            role,
+            status,
+            company_id,
+            companies!inner(name)
+          `)
+          .eq('invite_token', token)
+          .maybeSingle()
+        
+        if (memberError) {
+          console.error('[v0] Error fetching invite:', memberError)
+          setErrorMessage('Unable to validate invite. Please try again.')
+          setStatus('error')
+          return
+        }
+        
+        if (!memberData) {
+          setStatus('invalid')
+          return
+        }
+        
+        invite = memberData
+        companyName = (memberData.companies as { name: string })?.name || 'Unknown Company'
+      } else {
+        // RPC worked
+        const rpcInvite = Array.isArray(rpcData) ? rpcData[0] : rpcData
+        if (!rpcInvite) {
+          setStatus('invalid')
+          return
+        }
+        invite = rpcInvite
+        companyName = rpcInvite.company_name || 'Unknown Company'
+      }
+      
+      // Check invite status
+      if (invite.status === 'active') {
+        setStatus('accepted')
+        return
+      }
+      
+      if (invite.status !== 'invited') {
+        setStatus('expired')
+        return
+      }
+      
+      setInviteData({
+        id: invite.id,
+        email: invite.email,
+        name: invite.name,
+        role: invite.role,
+        companyName: companyName,
+      })
+      setStatus('valid')
+      
+    } catch (error) {
+      console.error('[v0] Error validating invite:', error)
+      setErrorMessage('An unexpected error occurred. Please try again.')
+      setStatus('error')
     }
-    
-    if (invite.status === 'active') {
-      setStatus('accepted')
-      return
-    }
-    
-    if (invite.status !== 'invited') {
-      setStatus('expired')
-      return
-    }
-    
-    setInviteData({
-      id: invite.id,
-      email: invite.email,
-      name: invite.name,
-      role: invite.role,
-      companyName: invite.company_name,
-    })
-    setStatus('valid')
   }
   
   const handleAcceptInvite = async (e: React.FormEvent) => {
@@ -119,25 +172,61 @@ export default function InvitePage() {
         }
       }
       
-      // Accept the invite (links user_id to company_member)
-      const { error: acceptError } = await supabase
+      // Try RPC first, fallback to direct update
+      const { data: acceptResult, error: acceptError } = await supabase
         .rpc('accept_invite', { p_token: token })
       
       if (acceptError) {
-        console.error('Error accepting invite:', acceptError)
-        toast.error('Failed to accept invite')
+        console.log('[v0] RPC accept_invite not available, using direct update')
+        
+        // Get current user
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (!user) {
+          toast.error('Authentication failed. Please try again.')
+          setIsSubmitting(false)
+          return
+        }
+        
+        // Direct update to company_members
+        const { error: updateError } = await supabase
+          .from('company_members')
+          .update({
+            user_id: user.id,
+            status: 'active',
+            invite_accepted_at: new Date().toISOString(),
+            invite_token: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('invite_token', token)
+        
+        if (updateError) {
+          console.error('[v0] Error accepting invite:', updateError)
+          toast.error('Failed to accept invite')
+          setIsSubmitting(false)
+          return
+        }
+      } else if (acceptResult && !acceptResult.success) {
+        toast.error(acceptResult.error || 'Failed to accept invite')
         setIsSubmitting(false)
         return
       }
       
       toast.success('Welcome to the team!')
       router.push('/')
-    } catch (error: any) {
-      console.error('Error accepting invite:', error)
-      toast.error(error.message || 'Failed to accept invite')
+    } catch (error: unknown) {
+      console.error('[v0] Error accepting invite:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to accept invite'
+      toast.error(errorMessage)
     } finally {
       setIsSubmitting(false)
     }
+  }
+  
+  const handleSignInAndAccept = async () => {
+    // Store token in sessionStorage so we can use it after login
+    sessionStorage.setItem('pending_invite_token', token)
+    router.push(`/login?redirect=/invite/${token}`)
   }
   
   if (status === 'loading') {
@@ -147,6 +236,30 @@ export default function InvitePage() {
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-muted-foreground">Validating invite...</p>
         </div>
+      </div>
+    )
+  }
+  
+  if (status === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+            <CardTitle>Something Went Wrong</CardTitle>
+            <CardDescription>
+              {errorMessage || 'Unable to load the invite. Please try again.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button onClick={() => validateInvite()} className="w-full">
+              Try Again
+            </Button>
+            <Button variant="outline" onClick={() => router.push('/login')} className="w-full">
+              Go to Login
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -223,7 +336,7 @@ export default function InvitePage() {
           </div>
           <CardTitle>Join {inviteData?.companyName}</CardTitle>
           <CardDescription>
-            You&apos;ve been invited to join as a <span className="font-medium capitalize">{inviteData?.role}</span>
+            You&apos;ve been invited to join as a <span className="font-medium capitalize">{inviteData?.role?.replace('_', ' ')}</span>
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -272,6 +385,13 @@ export default function InvitePage() {
                 'Accept Invite & Create Account'
               )}
             </Button>
+            
+            <p className="text-center text-sm text-muted-foreground">
+              Already have an account?{' '}
+              <Link href={`/login?redirect=/invite/${token}`} className="text-primary hover:underline">
+                Sign in
+              </Link>
+            </p>
           </form>
         </CardContent>
       </Card>
