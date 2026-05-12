@@ -143,7 +143,12 @@ export default function InvitePage() {
     try {
       const supabase = createClient()
       
+      console.log('[v0] Starting invite accept flow for:', inviteData?.email)
+      console.log('[v0] Invite ID:', inviteData?.id)
+      console.log('[v0] Token:', token)
+      
       // Create the user account
+      console.log('[v0] Step 1: Creating user account...')
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: inviteData!.email,
         password: password,
@@ -154,42 +159,62 @@ export default function InvitePage() {
         },
       })
       
+      console.log('[v0] SignUp result:', { 
+        userId: authData?.user?.id, 
+        session: !!authData?.session,
+        error: authError?.message 
+      })
+      
       if (authError) {
         // If user already exists, try to sign in
         if (authError.message.includes('already registered')) {
-          const { error: signInError } = await supabase.auth.signInWithPassword({
+          console.log('[v0] User already exists, attempting sign in...')
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
             email: inviteData!.email,
             password: password,
           })
           
           if (signInError) {
+            console.error('[v0] Sign in failed:', signInError)
             toast.error('Account exists. Please sign in with your existing password.')
             setIsSubmitting(false)
             return
           }
+          console.log('[v0] Sign in successful:', signInData?.user?.id)
         } else {
+          console.error('[v0] Auth error:', authError)
           throw authError
         }
       }
       
-      // Try RPC first, fallback to direct update
+      // Get current user after signup/signin
+      console.log('[v0] Step 2: Getting current user...')
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      
+      console.log('[v0] Current user:', { userId: user?.id, email: user?.email, error: userError?.message })
+      
+      if (!user) {
+        console.error('[v0] No user after signup/signin')
+        toast.error('Authentication failed. Please try again.')
+        setIsSubmitting(false)
+        return
+      }
+      
+      // Try RPC first
+      console.log('[v0] Step 3: Trying accept_invite RPC...')
       const { data: acceptResult, error: acceptError } = await supabase
         .rpc('accept_invite', { p_token: token })
       
+      console.log('[v0] RPC result:', { data: acceptResult, error: acceptError?.message })
+      
       if (acceptError) {
-        console.log('[v0] RPC accept_invite not available, using direct update')
+        console.log('[v0] RPC accept_invite failed:', acceptError.message, '- using direct update')
         
-        // Get current user
-        const { data: { user } } = await supabase.auth.getUser()
+        // Direct update to company_members using the invite ID instead of token
+        // This avoids RLS issues since we update by ID
+        console.log('[v0] Step 4: Direct update to company_members by ID:', inviteData?.id)
         
-        if (!user) {
-          toast.error('Authentication failed. Please try again.')
-          setIsSubmitting(false)
-          return
-        }
-        
-        // Direct update to company_members
-        const { error: updateError } = await supabase
+        const { data: updateData, error: updateError } = await supabase
           .from('company_members')
           .update({
             user_id: user.id,
@@ -198,26 +223,47 @@ export default function InvitePage() {
             invite_token: null,
             updated_at: new Date().toISOString(),
           })
-          .eq('invite_token', token)
+          .eq('id', inviteData!.id)
+          .select()
+        
+        console.log('[v0] Update result:', { data: updateData, error: updateError?.message, code: updateError?.code, details: updateError?.details })
         
         if (updateError) {
-          console.error('[v0] Error accepting invite:', updateError)
-          toast.error('Failed to accept invite')
+          console.error('[v0] Direct update failed:', {
+            message: updateError.message,
+            code: updateError.code,
+            details: updateError.details,
+            hint: updateError.hint
+          })
+          toast.error(`Failed to accept invite: ${updateError.message}`)
           setIsSubmitting(false)
           return
         }
+        
+        if (!updateData || updateData.length === 0) {
+          console.error('[v0] Update returned no rows - RLS may be blocking')
+          toast.error('Unable to update membership. Please contact support.')
+          setIsSubmitting(false)
+          return
+        }
+        
+        console.log('[v0] Direct update successful:', updateData)
       } else if (acceptResult && !acceptResult.success) {
+        console.error('[v0] RPC returned error:', acceptResult.error)
         toast.error(acceptResult.error || 'Failed to accept invite')
         setIsSubmitting(false)
         return
+      } else {
+        console.log('[v0] RPC accept_invite successful')
       }
       
+      console.log('[v0] Invite accepted successfully!')
       toast.success('Welcome to the team!')
       router.push('/')
     } catch (error: unknown) {
-      console.error('[v0] Error accepting invite:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Failed to accept invite'
-      toast.error(errorMessage)
+      console.error('[v0] Unexpected error in handleAcceptInvite:', error)
+      const errMsg = error instanceof Error ? error.message : 'Failed to accept invite'
+      toast.error(errMsg)
     } finally {
       setIsSubmitting(false)
     }
