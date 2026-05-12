@@ -47,6 +47,7 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { AskAIFloating } from '@/components/ai/ask-ai-floating'
 import { MobileBottomNav } from '@/components/mobile-bottom-nav'
+import { FeedbackButton } from '@/components/feedback-button'
 
 import type { Permission } from '@/lib/permissions'
 
@@ -222,7 +223,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             </Link>
 
-            {/* Quick Add - Desktop */}
+            {/* Feedback - Beta */}
+                <FeedbackButton />
+                
+                {/* Quick Add - Desktop */}
             <QuickAddButton />
 
             {/* User Menu */}
