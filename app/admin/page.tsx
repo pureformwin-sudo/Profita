@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { 
   Building2, Users, Briefcase, FileText, DollarSign, 
-  TrendingUp, Clock, ArrowRight, Shield, Activity
+  TrendingUp, Clock, ArrowRight, Shield, Activity, MessageSquare
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { isSuperAdmin, getPlatformStats, type PlatformStats } from '@/lib/super-admin'
@@ -219,7 +219,7 @@ export default function AdminDashboardPage() {
           <CardDescription>Manage platform resources</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2">
               <Link href="/admin/companies">
                 <Building2 className="h-5 w-5" />
@@ -230,6 +230,12 @@ export default function AdminDashboardPage() {
               <Link href="/admin/users">
                 <Users className="h-5 w-5" />
                 <span>Users</span>
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2">
+              <Link href="/admin/feedback">
+                <MessageSquare className="h-5 w-5" />
+                <span>Feedback</span>
               </Link>
             </Button>
             <Button variant="outline" className="h-auto py-4 flex-col gap-2 opacity-50" disabled>
