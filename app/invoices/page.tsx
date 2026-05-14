@@ -24,6 +24,7 @@ import { PaymentMethodDialog, PaymentMethodType } from '@/components/payment-met
 import { notifyInvoiceCreated, notifyInvoicePaid, notifyEstimateCreated, notifyEstimateAccepted } from '@/lib/in-app-notifications'
 import { recordPayment, getPaymentsForInvoice, type PaymentMethod as NewPaymentMethod } from '@/lib/payments-storage'
 import { type Payment } from '@/lib/payments-types'
+import { AdminDocumentPreview } from '@/components/admin-document-preview'
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -974,290 +975,95 @@ async function handleConvertToJob(estimate: Estimate) {
           </DialogContent>
         </Dialog>
 
-        {/* Invoice Detail Dialog */}
+        {/* Invoice Detail Dialog - Professional Preview */}
         <Dialog open={!!selectedInvoice} onOpenChange={() => setSelectedInvoice(null)}>
-          <DialogContent className="w-[calc(100vw-2rem)] max-w-lg sm:max-w-xl md:max-w-2xl max-h-[85vh] overflow-y-auto p-4 sm:p-6">
+          <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             {selectedInvoice && (
-              <>
-                <DialogHeader className="pb-4 border-b pr-8">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                    <div>
-                      <DialogTitle className="text-lg sm:text-xl">{selectedInvoice.invoiceNumber}</DialogTitle>
-                      <p className="text-muted-foreground text-sm mt-1">
-                        Issued {formatDate(selectedInvoice.issueDate)}
-                      </p>
-                    </div>
-                    <Badge className={cn("text-xs sm:text-sm px-2 sm:px-3 py-1 w-fit", getStatusColor(selectedInvoice.status))}>
-                      {selectedInvoice.status}
-                    </Badge>
-                  </div>
-                </DialogHeader>
-                
-                <div className="space-y-4 sm:space-y-6 py-4">
-                  {/* Customer Info */}
-                  <div className="flex flex-col sm:flex-row sm:justify-between gap-3 sm:gap-0">
-                    <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Bill To</p>
-                      <p className="font-semibold text-base sm:text-lg">{selectedInvoice.customerName}</p>
-                      {customers.find(c => c.id === selectedInvoice.customerId)?.email && (
-                        <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                          <Mail className="h-3 w-3" />
-                          <span className="truncate max-w-[200px]">{customers.find(c => c.id === selectedInvoice.customerId)?.email}</span>
-                        </p>
-                      )}
-                    </div>
-                    <div className="sm:text-right">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Due Date</p>
-                      <p className="font-medium">{formatDate(selectedInvoice.dueDate)}</p>
-                    </div>
-                  </div>
-
-                  {/* Line Items - Card layout on mobile, table on desktop */}
-                  <div className="border rounded-lg overflow-hidden">
-                    {/* Desktop table */}
-                    <table className="w-full text-sm hidden sm:table">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="text-left p-3 font-medium">Description</th>
-                          <th className="text-center p-3 w-16 font-medium">Qty</th>
-                          <th className="text-right p-3 w-20 font-medium">Price</th>
-                          <th className="text-right p-3 w-20 font-medium">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {selectedInvoice.items.map((item, i) => (
-                          <tr key={i}>
-                            <td className="p-3">{item.description}</td>
-                            <td className="p-3 text-center">{item.quantity}</td>
-                            <td className="p-3 text-right">${item.unitPrice.toFixed(2)}</td>
-                            <td className="p-3 text-right font-medium">${(item.quantity * item.unitPrice).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {/* Mobile card layout */}
-                    <div className="sm:hidden divide-y">
-                      {selectedInvoice.items.map((item, i) => (
-                        <div key={i} className="p-3 space-y-1">
-                          <p className="font-medium">{item.description}</p>
-                          <div className="flex justify-between text-sm text-muted-foreground">
-                            <span>{item.quantity} x ${item.unitPrice.toFixed(2)}</span>
-                            <span className="font-medium text-foreground">${(item.quantity * item.unitPrice).toFixed(2)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Totals */}
-                  <div className="bg-muted/30 rounded-lg p-3 sm:p-4 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span>${selectedInvoice.subtotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Tax ({selectedInvoice.taxRate}%)</span>
-                      <span>${selectedInvoice.taxAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-lg sm:text-xl font-bold pt-2 border-t">
-                      <span>Total</span>
-                      <span className="text-primary">${selectedInvoice.total.toFixed(2)}</span>
-                    </div>
-                    {selectedInvoice.amountPaid > 0 && (
-                      <>
-                        <div className="flex justify-between text-sm text-emerald-600">
-                          <span>Amount Paid</span>
-                          <span>-${selectedInvoice.amountPaid.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between font-semibold">
-                          <span>Balance Due</span>
-                          <span>${(selectedInvoice.total - selectedInvoice.amountPaid).toFixed(2)}</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {selectedInvoice.notes && (
-                    <div className="bg-muted/30 rounded-lg p-3 sm:p-4">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Notes</p>
-                      <p className="text-sm">{selectedInvoice.notes}</p>
-                    </div>
-                  )}
-
-                  {/* Linked Records */}
-                  {(selectedInvoice.estimateId || selectedInvoice.jobId) && (
-                    <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 sm:p-4">
-                      <p className="text-xs text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <Link2 className="h-3 w-3" /> Linked Records
-                      </p>
-                      <div className="space-y-1 text-sm">
-                        {selectedInvoice.estimateId && (
-                          <p>From Estimate: {estimates.find(e => e.id === selectedInvoice.estimateId)?.estimateNumber || 'Unknown'}</p>
-                        )}
-                        {selectedInvoice.jobId && (
-                          <p>Job: {jobs.find(j => j.id === selectedInvoice.jobId)?.id?.slice(0, 8) || 'Unknown'}</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <DialogFooter className="flex-col gap-2 border-t pt-4">
-                  {selectedInvoice.status === 'draft' && (
-                    <Button onClick={() => { handleSendInvoice(selectedInvoice); setSelectedInvoice(null) }} className="w-full sm:w-auto">
-                      <Send className="h-4 w-4 mr-2" /> Send Invoice
-                    </Button>
-                  )}
-                  {(selectedInvoice.status === 'sent' || selectedInvoice.status === 'overdue') && (
-                    <div className="flex flex-col sm:flex-row gap-2 w-full">
-                      <Button variant="outline" onClick={() => {
-                        const paymentLink = `${window.location.origin}/pay/${selectedInvoice.id}`
-                        navigator.clipboard.writeText(paymentLink)
-                        toast.success('Payment link copied!')
-                      }} className="flex-1">
-                        <Link2 className="h-4 w-4 mr-2" /> Copy Link
-                      </Button>
-                      <Button onClick={() => openRecordPaymentModal(selectedInvoice)} className="flex-1 bg-emerald-600 hover:bg-emerald-700">
-                        <CreditCard className="h-4 w-4 mr-2" /> Record Payment
-                      </Button>
-                    </div>
-                  )}
-                  {selectedInvoice.status === 'paid' && (
-                    <div className="text-center text-emerald-600 font-medium flex items-center justify-center gap-2">
-                      <CheckCircle className="h-5 w-5" />
-                      Invoice Fully Paid
-                    </div>
-                  )}
-                </DialogFooter>
-              </>
+              <AdminDocumentPreview
+                type="invoice"
+                documentNumber={selectedInvoice.invoiceNumber}
+                status={selectedInvoice.status}
+                issueDate={selectedInvoice.issueDate}
+                dueDate={selectedInvoice.dueDate}
+                company={{
+                  name: businessInfo.name || 'Your Company',
+                  phone: businessInfo.phone,
+                  email: businessInfo.email,
+                }}
+                customer={{
+                  name: selectedInvoice.customerName || 'Customer',
+                  email: customers.find(c => c.id === selectedInvoice.customerId)?.email,
+                  phone: customers.find(c => c.id === selectedInvoice.customerId)?.phone,
+                  address: customers.find(c => c.id === selectedInvoice.customerId)?.address,
+                }}
+                items={selectedInvoice.items.map(item => ({
+                  description: item.description,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  total: item.quantity * item.unitPrice,
+                }))}
+                subtotal={selectedInvoice.subtotal}
+                taxRate={selectedInvoice.taxRate}
+                taxAmount={selectedInvoice.taxAmount}
+                total={selectedInvoice.total}
+                amountPaid={selectedInvoice.amountPaid}
+                notes={selectedInvoice.notes}
+                internalNotes={(selectedInvoice as any).internalNotes}
+                linkedEstimateNumber={selectedInvoice.estimateId ? estimates.find(e => e.id === selectedInvoice.estimateId)?.estimateNumber : null}
+                linkedJobId={selectedInvoice.jobId}
+                documentId={selectedInvoice.id}
+                onSend={() => { handleSendInvoice(selectedInvoice); setSelectedInvoice(null) }}
+                onCopyLink={() => {
+                  const paymentLink = `${window.location.origin}/pay/${selectedInvoice.id}`
+                  navigator.clipboard.writeText(paymentLink)
+                  toast.success('Payment link copied!')
+                }}
+                onRecordPayment={() => openRecordPaymentModal(selectedInvoice)}
+              />
             )}
           </DialogContent>
         </Dialog>
 
-        {/* Estimate Detail Dialog */}
+        {/* Estimate Detail Dialog - Professional Preview */}
         <Dialog open={!!selectedEstimate} onOpenChange={() => setSelectedEstimate(null)}>
-          <DialogContent className="w-[calc(100vw-2rem)] max-w-lg sm:max-w-xl md:max-w-2xl max-h-[85vh] overflow-y-auto p-4 sm:p-6">
+          <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             {selectedEstimate && (
-              <>
-                <DialogHeader className="pb-4 border-b pr-8">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                    <div>
-                      <DialogTitle className="text-lg sm:text-xl">{selectedEstimate.estimateNumber}</DialogTitle>
-                      <p className="text-muted-foreground text-sm mt-1">
-                        Issued {formatDate(selectedEstimate.issueDate)}
-                      </p>
-                    </div>
-                    <Badge className={cn("text-xs sm:text-sm px-2 sm:px-3 py-1 w-fit", getStatusColor(selectedEstimate.status))}>
-                      {selectedEstimate.status}
-                    </Badge>
-                  </div>
-                </DialogHeader>
-                
-                <div className="space-y-4 sm:space-y-6 py-4">
-                  {/* Customer Info */}
-                  <div className="flex flex-col sm:flex-row sm:justify-between gap-3 sm:gap-0">
-                    <div>
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Prepared For</p>
-                      <p className="font-semibold text-base sm:text-lg">{selectedEstimate.customerName}</p>
-                    </div>
-                    <div className="sm:text-right">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Valid Until</p>
-                      <p className="font-medium">{formatDate(selectedEstimate.expiryDate)}</p>
-                    </div>
-                  </div>
-
-                  {/* Line Items - Card layout on mobile, table on desktop */}
-                  <div className="border rounded-lg overflow-hidden">
-                    {/* Desktop table */}
-                    <table className="w-full text-sm hidden sm:table">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="text-left p-3 font-medium">Description</th>
-                          <th className="text-center p-3 w-16 font-medium">Qty</th>
-                          <th className="text-right p-3 w-20 font-medium">Price</th>
-                          <th className="text-right p-3 w-20 font-medium">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {selectedEstimate.items.map((item, i) => (
-                          <tr key={i}>
-                            <td className="p-3">{item.description}</td>
-                            <td className="p-3 text-center">{item.quantity}</td>
-                            <td className="p-3 text-right">${item.unitPrice.toFixed(2)}</td>
-                            <td className="p-3 text-right font-medium">${(item.quantity * item.unitPrice).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {/* Mobile card layout */}
-                    <div className="sm:hidden divide-y">
-                      {selectedEstimate.items.map((item, i) => (
-                        <div key={i} className="p-3 space-y-1">
-                          <p className="font-medium">{item.description}</p>
-                          <div className="flex justify-between text-sm text-muted-foreground">
-                            <span>{item.quantity} x ${item.unitPrice.toFixed(2)}</span>
-                            <span className="font-medium text-foreground">${(item.quantity * item.unitPrice).toFixed(2)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Totals */}
-                  <div className="bg-muted/30 rounded-lg p-3 sm:p-4 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span>${selectedEstimate.subtotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Tax ({selectedEstimate.taxRate}%)</span>
-                      <span>${selectedEstimate.taxAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-lg sm:text-xl font-bold pt-2 border-t">
-                      <span>Total</span>
-                      <span className="text-primary">${selectedEstimate.total.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  {selectedEstimate.notes && (
-                    <div className="bg-muted/30 rounded-lg p-3 sm:p-4">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Notes</p>
-                      <p className="text-sm">{selectedEstimate.notes}</p>
-                    </div>
-                  )}
-                </div>
-
-                <DialogFooter className="flex-col gap-2 border-t pt-4">
-                  {/* Status action buttons */}
-                  {selectedEstimate.status === 'draft' && (
-                    <Button variant="outline" onClick={() => handleMarkEstimateStatus(selectedEstimate, 'sent')} className="w-full sm:w-auto">
-                      <Send className="h-4 w-4 mr-2" /> Mark as Sent
-                    </Button>
-                  )}
-                  {selectedEstimate.status === 'sent' && (
-                    <div className="flex flex-col sm:flex-row gap-2 w-full">
-                      <Button variant="outline" onClick={() => handleMarkEstimateStatus(selectedEstimate, 'declined')} className="text-red-600 hover:text-red-700 flex-1">
-                        <XCircle className="h-4 w-4 mr-2" /> Declined
-                      </Button>
-                      <Button variant="outline" onClick={() => handleMarkEstimateStatus(selectedEstimate, 'accepted')} className="text-emerald-600 hover:text-emerald-700 flex-1">
-                        <CheckCircle className="h-4 w-4 mr-2" /> Accepted
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {/* Conversion buttons - show for Draft, Sent, or Accepted */}
-                  {(selectedEstimate.status === 'draft' || selectedEstimate.status === 'sent' || selectedEstimate.status === 'accepted') && (
-                    <div className="flex flex-col sm:flex-row gap-2 w-full">
-                      <Button variant="outline" onClick={() => handleConvertToJob(selectedEstimate)} className="flex-1">
-                        <Briefcase className="h-4 w-4 mr-2" /> Convert to Job
-                      </Button>
-                      <Button onClick={() => handleConvertToInvoice(selectedEstimate)} className="flex-1">
-                        <Receipt className="h-4 w-4 mr-2" /> Convert to Invoice
-                      </Button>
-                    </div>
-                  )}
-                </DialogFooter>
-              </>
+              <AdminDocumentPreview
+                type="estimate"
+                documentNumber={selectedEstimate.estimateNumber}
+                status={selectedEstimate.status}
+                issueDate={selectedEstimate.issueDate}
+                expiryDate={selectedEstimate.expiryDate}
+                company={{
+                  name: businessInfo.name || 'Your Company',
+                  phone: businessInfo.phone,
+                  email: businessInfo.email,
+                }}
+                customer={{
+                  name: selectedEstimate.customerName || 'Customer',
+                  email: customers.find(c => c.id === selectedEstimate.customerId)?.email,
+                  phone: customers.find(c => c.id === selectedEstimate.customerId)?.phone,
+                  address: customers.find(c => c.id === selectedEstimate.customerId)?.address,
+                }}
+                items={selectedEstimate.items.map(item => ({
+                  description: item.description,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  total: item.quantity * item.unitPrice,
+                }))}
+                subtotal={selectedEstimate.subtotal}
+                taxRate={selectedEstimate.taxRate}
+                taxAmount={selectedEstimate.taxAmount}
+                total={selectedEstimate.total}
+                notes={selectedEstimate.notes}
+                internalNotes={(selectedEstimate as any).internalNotes}
+                documentId={selectedEstimate.id}
+                onSend={() => { handleMarkEstimateStatus(selectedEstimate, 'sent'); setSelectedEstimate(null) }}
+                onMarkAccepted={() => { handleMarkEstimateStatus(selectedEstimate, 'accepted'); setSelectedEstimate(null) }}
+                onMarkDeclined={() => { handleMarkEstimateStatus(selectedEstimate, 'declined'); setSelectedEstimate(null) }}
+                onConvertToJob={() => { handleConvertToJob(selectedEstimate); setSelectedEstimate(null) }}
+                onConvertToInvoice={() => { handleConvertToInvoice(selectedEstimate); setSelectedEstimate(null) }}
+              />
             )}
           </DialogContent>
         </Dialog>
