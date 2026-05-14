@@ -133,7 +133,13 @@ export function AdminDocumentPreview({
   }
   
   const handleViewCustomerVersion = () => {
-    window.open(`/pay/${documentId}`, '_blank')
+    // For invoices, link to payment page. For estimates, there's no direct customer page yet.
+    if (isInvoice) {
+      window.open(`/pay/${documentId}`, '_blank')
+    } else {
+      // Could link to a public estimate view page if it exists
+      window.open(`/pay/${documentId}`, '_blank') // Placeholder - estimates don't have a standalone customer page yet
+    }
   }
 
   return (
