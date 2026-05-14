@@ -1,17 +1,13 @@
 'use client'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { 
-  FileText, Building2, User, Calendar, Mail, Phone, MapPin,
+  FileText, User,
   Printer, ExternalLink, Send, Link2, CreditCard, CheckCircle,
-  XCircle, Briefcase, Receipt, AlertCircle, Clock, Copy
+  XCircle, Briefcase, Receipt, AlertCircle
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import Image from 'next/image'
 
-// Line item type
 interface LineItem {
   description: string
   quantity: number
@@ -19,7 +15,6 @@ interface LineItem {
   total?: number
 }
 
-// Company info
 interface CompanyInfo {
   id?: string
   name: string
@@ -29,7 +24,6 @@ interface CompanyInfo {
   address?: string | null
 }
 
-// Customer info
 interface CustomerInfo {
   name: string
   email?: string | null
@@ -37,7 +31,6 @@ interface CustomerInfo {
   address?: string | null
 }
 
-// Base document props
 interface AdminDocumentPreviewProps {
   type: 'invoice' | 'estimate'
   documentNumber: string
@@ -60,7 +53,6 @@ interface AdminDocumentPreviewProps {
   linkedEstimateNumber?: string | null
   linkedJobId?: string | null
   documentId: string
-  // Admin actions
   onSend?: () => void
   onCopyLink?: () => void
   onRecordPayment?: () => void
@@ -75,7 +67,7 @@ function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return 'N/A'
   return new Date(dateStr).toLocaleDateString('en-US', {
     year: 'numeric',
-    month: 'short',
+    month: 'long',
     day: 'numeric'
   })
 }
@@ -87,26 +79,18 @@ function formatCurrency(amount: number): string {
   }).format(amount)
 }
 
-function getStatusStyles(status: string, type: 'invoice' | 'estimate'): string {
-  const statusLower = status.toLowerCase()
-  if (type === 'invoice') {
-    switch (statusLower) {
-      case 'paid': return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-      case 'sent': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-      case 'overdue': return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-      case 'draft': return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  } else {
-    switch (statusLower) {
-      case 'accepted': return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-      case 'sent': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-      case 'declined': return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-      case 'expired': return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
-      case 'draft': return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  }
+const statusStyles: Record<string, { bg: string; text: string }> = {
+  paid: { bg: 'bg-emerald-100', text: 'text-emerald-800' },
+  sent: { bg: 'bg-blue-100', text: 'text-blue-800' },
+  overdue: { bg: 'bg-red-100', text: 'text-red-800' },
+  draft: { bg: 'bg-slate-100', text: 'text-slate-700' },
+  accepted: { bg: 'bg-emerald-100', text: 'text-emerald-800' },
+  declined: { bg: 'bg-red-100', text: 'text-red-800' },
+  expired: { bg: 'bg-orange-100', text: 'text-orange-800' },
+}
+
+function getStatusStyle(status: string): { bg: string; text: string } {
+  return statusStyles[status.toLowerCase()] || statusStyles.draft
 }
 
 export function AdminDocumentPreview({
@@ -142,49 +126,45 @@ export function AdminDocumentPreview({
   const balance = total - amountPaid
   const isInvoice = type === 'invoice'
   const statusLower = status.toLowerCase()
+  const statusStyle = getStatusStyle(status)
   
   const handlePrint = () => {
     window.print()
   }
   
   const handleViewCustomerVersion = () => {
-    if (isInvoice) {
-      window.open(`/pay/${documentId}`, '_blank')
-    } else {
-      // For estimates, we'd need a portal link - for now just copy the concept
-      window.open(`/pay/${documentId}`, '_blank')
-    }
+    window.open(`/pay/${documentId}`, '_blank')
   }
 
   return (
-    <div className="space-y-6">
-      {/* Admin Action Bar - Not visible in print */}
-      <div className="flex flex-wrap gap-2 pb-4 border-b print:hidden">
-        <Button variant="outline" size="sm" onClick={handlePrint}>
+    <div className="space-y-4">
+      {/* Admin Action Bar */}
+      <div className="flex flex-wrap gap-2 pb-4 border-b border-slate-200 print:hidden">
+        <Button variant="outline" size="sm" onClick={handlePrint} className="border-slate-300 text-slate-700">
           <Printer className="h-4 w-4 mr-2" />
           Print
         </Button>
-        <Button variant="outline" size="sm" onClick={handleViewCustomerVersion}>
+        <Button variant="outline" size="sm" onClick={handleViewCustomerVersion} className="border-slate-300 text-slate-700">
           <ExternalLink className="h-4 w-4 mr-2" />
           View Customer Version
         </Button>
         {onCopyLink && (
-          <Button variant="outline" size="sm" onClick={onCopyLink}>
+          <Button variant="outline" size="sm" onClick={onCopyLink} className="border-slate-300 text-slate-700">
             <Link2 className="h-4 w-4 mr-2" />
             Copy Link
           </Button>
         )}
       </div>
 
-      {/* Professional Document Preview */}
-      <div className="bg-white dark:bg-zinc-950 rounded-lg border print:border-0 print:shadow-none">
+      {/* Document Preview */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden print:border-0 print:shadow-none">
         {/* Header */}
-        <div className="p-6 border-b print:border-gray-200">
-          <div className="flex flex-col sm:flex-row justify-between gap-4">
-            {/* Company Info */}
+        <div className="px-8 py-6">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
+            {/* Company */}
             <div className="flex items-start gap-4">
               {company?.logo_url ? (
-                <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-muted shrink-0">
+                <div className="relative w-14 h-14 rounded-lg overflow-hidden flex-shrink-0">
                   <Image
                     src={company.logo_url}
                     alt={company.name}
@@ -193,242 +173,216 @@ export function AdminDocumentPreview({
                   />
                 </div>
               ) : (
-                <div className="w-16 h-16 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                  <Building2 className="h-8 w-8 text-primary" />
+                <div className="w-14 h-14 bg-slate-900 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <span className="text-xl font-bold text-white">
+                    {(company?.name || 'C').charAt(0)}
+                  </span>
                 </div>
               )}
               <div>
-                <h2 className="text-xl font-bold text-foreground">{company?.name || 'Your Company'}</h2>
-                {company?.phone && (
-                  <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                    <Phone className="h-3 w-3" /> {company.phone}
-                  </p>
-                )}
-                {company?.email && (
-                  <p className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Mail className="h-3 w-3" /> {company.email}
-                  </p>
-                )}
-                {company?.address && (
-                  <p className="text-sm text-muted-foreground flex items-center gap-1">
-                    <MapPin className="h-3 w-3" /> {company.address}
-                  </p>
-                )}
+                <h2 className="text-lg font-semibold text-slate-900">{company?.name || 'Your Company'}</h2>
+                <div className="mt-1 space-y-0.5 text-sm text-slate-600">
+                  {company?.phone && <p>{company.phone}</p>}
+                  {company?.email && <p>{company.email}</p>}
+                  {company?.address && <p>{company.address}</p>}
+                </div>
               </div>
             </div>
             
-            {/* Document Info */}
+            {/* Document title */}
             <div className="text-left sm:text-right">
-              <div className="flex items-center gap-2 sm:justify-end">
-                <h1 className="text-2xl font-bold uppercase tracking-wide text-foreground">
-                  {isInvoice ? 'Invoice' : 'Estimate'}
-                </h1>
-                <Badge className={cn("text-xs", getStatusStyles(status, type))}>
-                  {status}
-                </Badge>
-              </div>
-              <p className="text-lg font-semibold text-muted-foreground mt-1">{documentNumber}</p>
-              <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                <p className="flex items-center gap-1 sm:justify-end">
-                  <Calendar className="h-3 w-3" />
-                  Issued: {formatDate(issueDate)}
-                </p>
-                {isInvoice && dueDate && (
-                  <p className={cn(
-                    "flex items-center gap-1 sm:justify-end",
-                    statusLower === 'overdue' && "text-red-600 font-medium"
-                  )}>
-                    {statusLower === 'overdue' && <AlertCircle className="h-3 w-3" />}
-                    Due: {formatDate(dueDate)}
-                  </p>
-                )}
-                {!isInvoice && expiryDate && (
-                  <p className="flex items-center gap-1 sm:justify-end">
-                    <Clock className="h-3 w-3" />
-                    Valid Until: {formatDate(expiryDate)}
-                  </p>
-                )}
+              <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tight">
+                {isInvoice ? 'Invoice' : 'Estimate'}
+              </h1>
+              <p className="text-base font-medium text-slate-600 mt-1">{documentNumber}</p>
+              <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold mt-2 ${statusStyle.bg} ${statusStyle.text}`}>
+                {status}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Bill To Section */}
-        <div className="p-6 border-b print:border-gray-200">
-          <div className="flex flex-col sm:flex-row justify-between gap-6">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+        {/* Customer and dates */}
+        <div className="px-8 py-6 border-t border-slate-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {/* Bill To */}
+            <div className="bg-slate-50 rounded-lg p-4">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                 {isInvoice ? 'Bill To' : 'Prepared For'}
               </p>
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <User className="h-5 w-5 text-primary" />
+                <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0">
+                  <User className="h-4 w-4 text-slate-600" />
                 </div>
                 <div>
-                  <p className="font-semibold text-lg text-foreground">{customer.name}</p>
-                  {customer.email && (
-                    <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
-                      <Mail className="h-3 w-3" /> {customer.email}
-                    </p>
-                  )}
-                  {customer.phone && (
-                    <p className="text-sm text-muted-foreground flex items-center gap-1">
-                      <Phone className="h-3 w-3" /> {customer.phone}
-                    </p>
-                  )}
-                  {customer.address && (
-                    <p className="text-sm text-muted-foreground flex items-center gap-1">
-                      <MapPin className="h-3 w-3" /> {customer.address}
-                    </p>
-                  )}
+                  <p className="font-semibold text-slate-900">{customer.name}</p>
+                  <div className="mt-0.5 space-y-0.5 text-sm text-slate-600">
+                    {customer.email && <p>{customer.email}</p>}
+                    {customer.phone && <p>{customer.phone}</p>}
+                    {customer.address && <p className="whitespace-pre-line">{customer.address}</p>}
+                  </div>
                 </div>
               </div>
             </div>
             
-            {/* Linked Records - Admin Only */}
-            {(linkedEstimateNumber || linkedJobId) && (
-              <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 print:hidden">
-                <p className="text-xs text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                  <FileText className="h-3 w-3" /> Linked Records
-                </p>
-                <div className="space-y-1 text-sm">
-                  {linkedEstimateNumber && (
-                    <p className="text-blue-700 dark:text-blue-300">From Estimate: {linkedEstimateNumber}</p>
-                  )}
-                  {linkedJobId && (
-                    <p className="text-blue-700 dark:text-blue-300">Job: {linkedJobId.slice(0, 8)}...</p>
-                  )}
+            {/* Dates and linked records */}
+            <div className="space-y-4">
+              <div className="sm:text-right space-y-2">
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Issue Date</p>
+                  <p className="text-sm font-medium text-slate-900 mt-0.5">{formatDate(issueDate)}</p>
                 </div>
+                {isInvoice && dueDate && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Due Date</p>
+                    <p className={`text-sm font-medium mt-0.5 ${statusLower === 'overdue' ? 'text-red-600' : 'text-slate-900'}`}>
+                      {formatDate(dueDate)}
+                    </p>
+                  </div>
+                )}
+                {!isInvoice && expiryDate && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Valid Until</p>
+                    <p className="text-sm font-medium text-slate-900 mt-0.5">{formatDate(expiryDate)}</p>
+                  </div>
+                )}
               </div>
-            )}
+              
+              {/* Linked records */}
+              {(linkedEstimateNumber || linkedJobId) && (
+                <div className="bg-blue-50 rounded-lg p-3 print:hidden">
+                  <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <FileText className="h-3 w-3" /> Linked Records
+                  </p>
+                  <div className="space-y-0.5 text-sm text-blue-800">
+                    {linkedEstimateNumber && <p>From Estimate: {linkedEstimateNumber}</p>}
+                    {linkedJobId && <p>Job: {linkedJobId.slice(0, 8)}...</p>}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Line Items */}
-        <div className="p-6 border-b print:border-gray-200">
-          <table className="w-full text-sm">
+        {/* Line items */}
+        <div className="px-8 py-6">
+          <table className="w-full">
             <thead>
-              <tr className="border-b print:border-gray-200">
-                <th className="text-left pb-3 font-semibold text-foreground">Description</th>
-                <th className="text-center pb-3 w-20 font-semibold text-foreground">Qty</th>
-                <th className="text-right pb-3 w-24 font-semibold text-foreground">Price</th>
-                <th className="text-right pb-3 w-24 font-semibold text-foreground">Total</th>
+              <tr className="border-b border-slate-200">
+                <th className="text-left py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Description</th>
+                <th className="text-center py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-16">Qty</th>
+                <th className="text-right py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Rate</th>
+                <th className="text-right py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-28">Amount</th>
               </tr>
             </thead>
-            <tbody className="divide-y print:divide-gray-200">
+            <tbody>
               {items.map((item, i) => (
-                <tr key={i} className={i % 2 === 0 ? 'bg-muted/30 print:bg-gray-50' : ''}>
-                  <td className="py-3 px-2 text-foreground">{item.description}</td>
-                  <td className="py-3 px-2 text-center text-muted-foreground">{item.quantity}</td>
-                  <td className="py-3 px-2 text-right text-muted-foreground">{formatCurrency(item.unitPrice)}</td>
-                  <td className="py-3 px-2 text-right font-medium text-foreground">
+                <tr key={i} className="border-b border-slate-100">
+                  <td className="py-4 text-sm text-slate-900">{item.description}</td>
+                  <td className="py-4 text-sm text-slate-600 text-center">{item.quantity}</td>
+                  <td className="py-4 text-sm text-slate-600 text-right">{formatCurrency(item.unitPrice)}</td>
+                  <td className="py-4 text-sm font-medium text-slate-900 text-right">
                     {formatCurrency(item.total || item.quantity * item.unitPrice)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
 
-        {/* Totals */}
-        <div className="p-6 border-b print:border-gray-200">
-          <div className="flex justify-end">
-            <div className="w-full sm:w-64 space-y-2">
+          {/* Totals */}
+          <div className="mt-6 flex justify-end">
+            <div className="w-64 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span className="text-foreground">{formatCurrency(subtotal)}</span>
+                <span className="text-slate-600">Subtotal</span>
+                <span className="text-slate-900 font-medium">{formatCurrency(subtotal)}</span>
               </div>
               {taxAmount > 0 && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Tax ({taxRate}%)</span>
-                  <span className="text-foreground">{formatCurrency(taxAmount)}</span>
+                  <span className="text-slate-600">Tax ({taxRate}%)</span>
+                  <span className="text-slate-900">{formatCurrency(taxAmount)}</span>
                 </div>
               )}
               {discount > 0 && (
-                <div className="flex justify-between text-sm text-emerald-600">
-                  <span>Discount</span>
-                  <span>-{formatCurrency(discount)}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-emerald-600">Discount</span>
+                  <span className="text-emerald-600">-{formatCurrency(discount)}</span>
                 </div>
               )}
-              <Separator />
-              <div className="flex justify-between text-lg font-bold">
-                <span className="text-foreground">Total</span>
-                <span className="text-primary">{formatCurrency(total)}</span>
+              <div className="border-t border-slate-200 pt-2 mt-2">
+                <div className="flex justify-between">
+                  <span className="text-slate-900 font-semibold">Total</span>
+                  <span className="text-slate-900 font-semibold text-lg">{formatCurrency(total)}</span>
+                </div>
               </div>
               {isInvoice && amountPaid > 0 && (
-                <>
-                  <div className="flex justify-between text-sm text-emerald-600">
-                    <span>Amount Paid</span>
-                    <span>-{formatCurrency(amountPaid)}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-emerald-600">Paid</span>
+                  <span className="text-emerald-600">-{formatCurrency(amountPaid)}</span>
+                </div>
+              )}
+              {isInvoice && (
+                <div className="bg-slate-900 text-white rounded-lg px-4 py-3 mt-3">
+                  <div className="flex justify-between items-center">
+                    <span className="font-semibold">Balance Due</span>
+                    <span className="text-xl font-bold">{formatCurrency(balance)}</span>
                   </div>
-                  <div className="flex justify-between font-semibold text-foreground">
-                    <span>Balance Due</span>
-                    <span className={balance > 0 ? 'text-red-600' : 'text-emerald-600'}>
-                      {formatCurrency(balance)}
-                    </span>
-                  </div>
-                </>
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Notes & Terms */}
+        {/* Customer Notes */}
         {(notes || terms) && (
-          <div className="p-6 border-b print:border-gray-200 space-y-4">
+          <div className="px-8 py-6 border-t border-slate-100 space-y-4">
             {notes && (
               <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1">
-                  <FileText className="h-3 w-3" /> 
-                  {isInvoice ? 'Notes' : 'Scope of Work'}
-                  <span className="text-emerald-600 text-[10px] ml-1">(Customer Visible)</span>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-2">
+                  Customer Notes
+                  <span className="text-emerald-600 text-[10px] font-normal normal-case">(Visible to customer)</span>
                 </p>
-                <p className="text-sm text-foreground whitespace-pre-wrap">{notes}</p>
+                <p className="text-sm text-slate-700 whitespace-pre-line">{notes}</p>
               </div>
             )}
             {terms && (
               <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Terms & Conditions</p>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{terms}</p>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Terms & Conditions</p>
+                <p className="text-sm text-slate-600 whitespace-pre-line">{terms}</p>
               </div>
             )}
           </div>
         )}
 
-        {/* Internal Notes - Admin Only, Not Printed */}
+        {/* Internal Notes - Admin Only */}
         {internalNotes && (
-          <div className="p-6 border-b bg-amber-50 dark:bg-amber-950/20 print:hidden">
-            <p className="text-xs text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-              <AlertCircle className="h-3 w-3" /> 
+          <div className="px-8 py-5 bg-amber-50 border-t border-amber-100 print:hidden">
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-1.5 flex items-center gap-2">
+              <AlertCircle className="h-3 w-3" />
               Internal Notes
-              <span className="text-[10px] ml-1">(Not visible to customer)</span>
+              <span className="text-amber-600 text-[10px] font-normal normal-case">(Not visible to customer)</span>
             </p>
-            <p className="text-sm text-amber-800 dark:text-amber-300 whitespace-pre-wrap">{internalNotes}</p>
+            <p className="text-sm text-amber-800 whitespace-pre-line">{internalNotes}</p>
           </div>
         )}
 
-        {/* Action Footer - Admin Only */}
-        <div className="p-6 bg-muted/30 print:hidden">
+        {/* Action Footer */}
+        <div className="px-8 py-5 bg-slate-50 border-t border-slate-100 print:hidden">
           <div className="flex flex-wrap gap-2 justify-end">
             {/* Invoice Actions */}
             {isInvoice && (
               <>
                 {statusLower === 'draft' && onSend && (
-                  <Button onClick={onSend} className="gap-2">
-                    <Send className="h-4 w-4" /> Send Invoice
+                  <Button onClick={onSend} className="bg-slate-900 hover:bg-slate-800">
+                    <Send className="h-4 w-4 mr-2" /> Send Invoice
                   </Button>
                 )}
-                {(statusLower === 'sent' || statusLower === 'overdue') && (
-                  <>
-                    {onRecordPayment && (
-                      <Button onClick={onRecordPayment} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-                        <CreditCard className="h-4 w-4" /> Record Payment
-                      </Button>
-                    )}
-                  </>
+                {(statusLower === 'sent' || statusLower === 'overdue') && onRecordPayment && (
+                  <Button onClick={onRecordPayment} className="bg-emerald-600 hover:bg-emerald-700">
+                    <CreditCard className="h-4 w-4 mr-2" /> Record Payment
+                  </Button>
                 )}
                 {statusLower === 'paid' && (
-                  <div className="text-emerald-600 font-medium flex items-center gap-2">
+                  <div className="text-emerald-700 font-semibold flex items-center gap-2 px-4">
                     <CheckCircle className="h-5 w-5" />
                     Invoice Fully Paid
                   </div>
@@ -440,20 +394,20 @@ export function AdminDocumentPreview({
             {!isInvoice && (
               <>
                 {statusLower === 'draft' && onSend && (
-                  <Button variant="outline" onClick={onSend} className="gap-2">
-                    <Send className="h-4 w-4" /> Mark as Sent
+                  <Button variant="outline" onClick={onSend} className="border-slate-300">
+                    <Send className="h-4 w-4 mr-2" /> Mark as Sent
                   </Button>
                 )}
                 {statusLower === 'sent' && (
                   <>
                     {onMarkDeclined && (
-                      <Button variant="outline" onClick={onMarkDeclined} className="gap-2 text-red-600 hover:text-red-700">
-                        <XCircle className="h-4 w-4" /> Declined
+                      <Button variant="outline" onClick={onMarkDeclined} className="border-red-200 text-red-700 hover:bg-red-50">
+                        <XCircle className="h-4 w-4 mr-2" /> Declined
                       </Button>
                     )}
                     {onMarkAccepted && (
-                      <Button variant="outline" onClick={onMarkAccepted} className="gap-2 text-emerald-600 hover:text-emerald-700">
-                        <CheckCircle className="h-4 w-4" /> Accepted
+                      <Button variant="outline" onClick={onMarkAccepted} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+                        <CheckCircle className="h-4 w-4 mr-2" /> Accepted
                       </Button>
                     )}
                   </>
@@ -461,25 +415,25 @@ export function AdminDocumentPreview({
                 {(statusLower === 'draft' || statusLower === 'sent' || statusLower === 'accepted') && (
                   <>
                     {onConvertToJob && (
-                      <Button variant="outline" onClick={onConvertToJob} className="gap-2">
-                        <Briefcase className="h-4 w-4" /> Convert to Job
+                      <Button variant="outline" onClick={onConvertToJob} className="border-slate-300">
+                        <Briefcase className="h-4 w-4 mr-2" /> Convert to Job
                       </Button>
                     )}
                     {onConvertToInvoice && (
-                      <Button onClick={onConvertToInvoice} className="gap-2">
-                        <Receipt className="h-4 w-4" /> Convert to Invoice
+                      <Button onClick={onConvertToInvoice} className="bg-slate-900 hover:bg-slate-800">
+                        <Receipt className="h-4 w-4 mr-2" /> Convert to Invoice
                       </Button>
                     )}
                   </>
                 )}
                 {statusLower === 'accepted' && (
-                  <div className="text-emerald-600 font-medium flex items-center gap-2">
+                  <div className="text-emerald-700 font-semibold flex items-center gap-2 px-4">
                     <CheckCircle className="h-5 w-5" />
                     Estimate Accepted
                   </div>
                 )}
                 {statusLower === 'declined' && (
-                  <div className="text-red-600 font-medium flex items-center gap-2">
+                  <div className="text-red-700 font-semibold flex items-center gap-2 px-4">
                     <XCircle className="h-5 w-5" />
                     Estimate Declined
                   </div>
