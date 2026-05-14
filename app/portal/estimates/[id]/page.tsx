@@ -1,13 +1,8 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
-import { useParams, useSearchParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { ArrowLeft, FileText, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
+import { useState, useEffect, Suspense, useRef } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
 import { usePortal } from '../../layout'
 import { 
   getPortalEstimate, 
@@ -15,31 +10,81 @@ import {
   declineEstimate,
   type PortalEstimate 
 } from '@/lib/portal-storage'
+import { ProfessionalDocument } from '@/components/professional-document'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 function PortalEstimateDetailContent() {
   const params = useParams()
-  const router = useRouter()
-  const { customer, token } = usePortal()
+  const { customer, token, company } = usePortal()
   const searchParams = useSearchParams()
   const tokenParam = searchParams.get('token') || token
   const estimateId = params.id as string
+  const documentRef = useRef<HTMLDivElement>(null)
 
   const [loading, setLoading] = useState(true)
   const [estimate, setEstimate] = useState<PortalEstimate | null>(null)
+  const [companyInfo, setCompanyInfo] = useState<{
+    name: string
+    logo?: string | null
+    phone?: string | null
+    email?: string | null
+    address?: string | null
+  } | null>(null)
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null)
-  const [showDeclineReason, setShowDeclineReason] = useState(false)
+  const [showDeclineDialog, setShowDeclineDialog] = useState(false)
   const [declineReason, setDeclineReason] = useState('')
 
   useEffect(() => {
     async function loadData() {
       if (!customer) return
+      
       const data = await getPortalEstimate(estimateId, customer.id)
       setEstimate(data)
+      
+      // Get company info
+      if (company) {
+        setCompanyInfo({
+          name: company.name,
+          logo: company.logo_url,
+          phone: company.phone,
+          email: company.email,
+          address: company.address,
+        })
+      } else if (data) {
+        const supabase = createClient()
+        const { data: companyData } = await supabase
+          .from('companies')
+          .select('name, logo_url, phone, email, address')
+          .eq('id', data.companyId)
+          .single()
+        
+        if (companyData) {
+          setCompanyInfo({
+            name: companyData.name,
+            logo: companyData.logo_url,
+            phone: companyData.phone,
+            email: companyData.email,
+            address: companyData.address,
+          })
+        }
+      }
+      
       setLoading(false)
     }
     loadData()
-  }, [customer, estimateId])
+  }, [customer, company, estimateId])
 
   const handleAccept = async () => {
     if (!customer || !estimate) return
@@ -64,10 +109,14 @@ function PortalEstimateDetailContent() {
     if (result.success) {
       toast.success('Estimate declined.')
       setEstimate({ ...estimate, status: 'declined' })
-      setShowDeclineReason(false)
+      setShowDeclineDialog(false)
     } else {
       toast.error(result.error || 'Failed to decline estimate')
     }
+  }
+
+  const handlePrint = () => {
+    window.print()
   }
 
   if (!customer) {
@@ -88,177 +137,100 @@ function PortalEstimateDetailContent() {
 
   if (!estimate) {
     return (
-      <div className="space-y-6">
-        <Link href={`/portal/estimates?token=${tokenParam}`}>
-          <Button variant="ghost" size="sm">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Estimates
-          </Button>
-        </Link>
-        <Card>
-          <CardContent className="py-12 text-center">
-            <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <h2 className="text-lg font-semibold mb-2">Estimate Not Found</h2>
-            <p className="text-muted-foreground">
-              This estimate may have been removed or you don&apos;t have access.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardContent className="py-12 text-center">
+          <h2 className="text-lg font-semibold mb-2">Estimate Not Found</h2>
+          <p className="text-muted-foreground">
+            This estimate may have been removed or you don&apos;t have access.
+          </p>
+        </CardContent>
+      </Card>
     )
   }
 
   const canRespond = estimate.status === 'sent'
-  const statusColors: Record<string, string> = {
-    sent: 'text-amber-600 border-amber-200 bg-amber-50',
-    accepted: 'text-emerald-600 border-emerald-200 bg-emerald-50',
-    declined: 'text-red-600 border-red-200 bg-red-50',
-  }
 
   return (
-    <div className="space-y-6">
-      <Link href={`/portal/estimates?token=${tokenParam}`}>
-        <Button variant="ghost" size="sm">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Estimates
-        </Button>
-      </Link>
+    <>
+      <ProfessionalDocument
+        ref={documentRef}
+        type="estimate"
+        documentNumber={estimate.estimateNumber}
+        issueDate={estimate.issueDate}
+        expiryDate={estimate.expiryDate}
+        status={estimate.status as 'sent' | 'accepted' | 'declined'}
+        company={{
+          name: companyInfo?.name || 'Company',
+          logo: companyInfo?.logo,
+          phone: companyInfo?.phone,
+          email: companyInfo?.email,
+          address: companyInfo?.address,
+        }}
+        customer={{
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          address: customer.address,
+        }}
+        items={estimate.items.map(item => ({
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total,
+        }))}
+        totals={{
+          subtotal: estimate.total,
+          total: estimate.total,
+        }}
+        notes={estimate.notes}
+        terms={estimate.terms}
+        onPrint={handlePrint}
+        onAccept={canRespond ? handleAccept : undefined}
+        onDecline={canRespond ? () => setShowDeclineDialog(true) : undefined}
+        isActionLoading={busy !== null}
+        actionLoadingType={busy || undefined}
+        backLink={`/portal/estimates?token=${tokenParam}`}
+        backLabel="Back to Estimates"
+        portalMode
+      />
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>{estimate.estimateNumber}</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                Issued {new Date(estimate.issueDate).toLocaleDateString()}
-                {estimate.expiryDate && (
-                  <> &middot; Expires {new Date(estimate.expiryDate).toLocaleDateString()}</>
-                )}
-              </p>
-            </div>
-            <Badge variant="outline" className={statusColors[estimate.status] || ''}>
-              {estimate.status === 'sent' && <Clock className="h-3 w-3 mr-1" />}
-              {estimate.status === 'accepted' && <CheckCircle className="h-3 w-3 mr-1" />}
-              {estimate.status === 'declined' && <XCircle className="h-3 w-3 mr-1" />}
-              {estimate.status.charAt(0).toUpperCase() + estimate.status.slice(1)}
-            </Badge>
+      {/* Decline reason dialog */}
+      <Dialog open={showDeclineDialog} onOpenChange={setShowDeclineDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Decline Estimate</DialogTitle>
+            <DialogDescription>
+              Let us know why this estimate doesn&apos;t work for you. This helps us improve our service.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder="Reason for declining (optional)..."
+              value={declineReason}
+              onChange={(e) => setDeclineReason(e.target.value)}
+              rows={4}
+            />
           </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Line Items */}
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted">
-                <tr>
-                  <th className="text-left p-3">Description</th>
-                  <th className="text-right p-3 w-16">Qty</th>
-                  <th className="text-right p-3 w-24">Price</th>
-                  <th className="text-right p-3 w-24">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {estimate.items.map((item, i) => (
-                  <tr key={i} className="border-t">
-                    <td className="p-3">{item.description}</td>
-                    <td className="p-3 text-right">{item.quantity}</td>
-                    <td className="p-3 text-right">${item.unitPrice.toFixed(2)}</td>
-                    <td className="p-3 text-right">${item.total.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Total */}
-          <div className="flex justify-end">
-            <div className="text-right">
-              <div className="flex justify-between gap-8 text-lg font-bold">
-                <span>Total</span>
-                <span>${estimate.total.toFixed(2)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          {canRespond && !showDeclineReason && (
-            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t">
-              <Button
-                size="lg"
-                className="flex-1"
-                onClick={handleAccept}
-                disabled={busy !== null}
-              >
-                {busy === 'accept' && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Accept Estimate
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="flex-1"
-                onClick={() => setShowDeclineReason(true)}
-                disabled={busy !== null}
-              >
-                <XCircle className="h-4 w-4 mr-2" />
-                Decline
-              </Button>
-            </div>
-          )}
-
-          {/* Decline reason form */}
-          {showDeclineReason && (
-            <div className="space-y-4 pt-4 border-t">
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  Reason for declining (optional)
-                </label>
-                <Textarea
-                  placeholder="Let us know why this estimate doesn't work for you..."
-                  value={declineReason}
-                  onChange={(e) => setDeclineReason(e.target.value)}
-                  rows={3}
-                />
-              </div>
-              <div className="flex gap-3">
-                <Button
-                  variant="destructive"
-                  onClick={handleDecline}
-                  disabled={busy !== null}
-                >
-                  {busy === 'decline' && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Confirm Decline
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowDeclineReason(false)}
-                  disabled={busy !== null}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Already responded */}
-          {!canRespond && (
-            <div className="text-center py-4 border-t">
-              {estimate.status === 'accepted' && (
-                <p className="text-emerald-600">
-                  <CheckCircle className="h-5 w-5 inline mr-2" />
-                  You accepted this estimate. We&apos;ll be in touch!
-                </p>
-              )}
-              {estimate.status === 'declined' && (
-                <p className="text-muted-foreground">
-                  <XCircle className="h-5 w-5 inline mr-2" />
-                  This estimate was declined.
-                </p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeclineDialog(false)}
+              disabled={busy !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDecline}
+              disabled={busy !== null}
+            >
+              {busy === 'decline' && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Confirm Decline
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

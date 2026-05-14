@@ -20,16 +20,29 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { validatePortalToken, type PortalCustomer } from '@/lib/portal-storage'
+import { createClient } from '@/lib/supabase/client'
+
+// Company info for the portal
+interface PortalCompany {
+  id: string
+  name: string
+  logo_url: string | null
+  phone: string | null
+  email: string | null
+  address: string | null
+}
 
 // Portal context for customer data
 interface PortalContextType {
   customer: PortalCustomer | null
+  company: PortalCompany | null
   token: string | null
   loading: boolean
 }
 
 const PortalContext = createContext<PortalContextType>({
   customer: null,
+  company: null,
   token: null,
   loading: true,
 })
@@ -119,6 +132,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const token = searchParams.get('token')
 
   const [customer, setCustomer] = useState<PortalCustomer | null>(null)
+  const [company, setCompany] = useState<PortalCompany | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -139,6 +153,21 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
       }
 
       setCustomer(result.customer)
+      
+      // Fetch company details
+      if (result.customer.companyId) {
+        const supabase = createClient()
+        const { data: companyData } = await supabase
+          .from('companies')
+          .select('id, name, logo_url, phone, email, address')
+          .eq('id', result.customer.companyId)
+          .single()
+        
+        if (companyData) {
+          setCompany(companyData)
+        }
+      }
+      
       setLoading(false)
     }
 
@@ -169,7 +198,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <PortalContext.Provider value={{ customer, token, loading }}>
+    <PortalContext.Provider value={{ customer, company, token, loading }}>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white">
         {/* Header */}
         <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b">

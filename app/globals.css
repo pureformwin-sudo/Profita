@@ -224,6 +224,68 @@
   }
 }
 
+/* Print styles for professional documents */
+@media print {
+  /* Reset to light mode for printing */
+  :root {
+    --background: #ffffff !important;
+    --foreground: #1a1a1a !important;
+    --card: #ffffff !important;
+    --card-foreground: #1a1a1a !important;
+    --muted: #f5f5f5 !important;
+    --muted-foreground: #666666 !important;
+    --border: #e5e5e5 !important;
+  }
+  
+  /* Hide non-essential elements */
+  .print\\:hidden,
+  nav,
+  aside,
+  footer,
+  button,
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Force light background */
+  body {
+    background: white !important;
+    color: #1a1a1a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Remove shadows and borders for cleaner print */
+  .print\\:shadow-none {
+    box-shadow: none !important;
+  }
+  
+  .print\\:border-0 {
+    border: none !important;
+  }
+  
+  /* White background for cards */
+  .print\\:bg-white {
+    background: white !important;
+  }
+  
+  /* Page margins */
+  @page {
+    margin: 0.75in;
+    size: letter;
+  }
+  
+  /* Prevent page breaks inside elements */
+  table, tr, td, th {
+    page-break-inside: avoid;
+  }
+  
+  /* Ensure proper sizing */
+  * {
+    box-sizing: border-box;
+  }
+}
+
 /* Animations */
 @keyframes fade-in {
   from { opacity: 0; }

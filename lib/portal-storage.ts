@@ -18,6 +18,9 @@ export interface PortalEstimate {
   issueDate: string
   expiryDate: string | null
   total: number
+  companyId?: string
+  notes?: string | null
+  terms?: string | null
   items: Array<{
     description: string
     quantity: number
@@ -35,6 +38,9 @@ export interface PortalInvoice {
   total: number
   amountPaid: number
   balance: number
+  companyId?: string
+  notes?: string | null
+  terms?: string | null
   items: Array<{
     description: string
     quantity: number
@@ -332,7 +338,7 @@ export async function getPortalEstimate(
 
   const { data, error } = await supabase
     .from('estimates')
-    .select('id, estimate_number, status, issue_date, expiry_date, total, items')
+    .select('id, estimate_number, status, issue_date, expiry_date, total, items, company_id, notes, terms')
     .eq('id', estimateId)
     .eq('customer_id', customerId) // Security: must match customer
     .single()
@@ -348,6 +354,9 @@ export async function getPortalEstimate(
     issueDate: data.issue_date,
     expiryDate: data.expiry_date,
     total: parseFloat(data.total) || 0,
+    companyId: data.company_id,
+    notes: data.notes,
+    terms: data.terms,
     items: (data.items || []).map((item: any) => ({
       description: item.description || '',
       quantity: item.quantity || 1,
@@ -368,7 +377,7 @@ export async function getPortalInvoice(
 
   const { data, error } = await supabase
     .from('invoices')
-    .select('id, invoice_number, status, issue_date, due_date, total, amount_paid, items')
+    .select('id, invoice_number, status, issue_date, due_date, total, amount_paid, items, company_id, notes, terms')
     .eq('id', invoiceId)
     .eq('customer_id', customerId) // Security: must match customer
     .single()
@@ -386,6 +395,9 @@ export async function getPortalInvoice(
     total: parseFloat(data.total) || 0,
     amountPaid: parseFloat(data.amount_paid) || 0,
     balance: (parseFloat(data.total) || 0) - (parseFloat(data.amount_paid) || 0),
+    companyId: data.company_id,
+    notes: data.notes,
+    terms: data.terms,
     items: (data.items || []).map((item: any) => ({
       description: item.description || '',
       quantity: item.quantity || 1,
