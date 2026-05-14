@@ -232,31 +232,43 @@
     --foreground: #1a1a1a !important;
     --card: #ffffff !important;
     --card-foreground: #1a1a1a !important;
-    --muted: #f5f5f5 !important;
-    --muted-foreground: #666666 !important;
-    --border: #e5e5e5 !important;
+    --muted: #f8fafc !important;
+    --muted-foreground: #64748b !important;
+    --border: #e2e8f0 !important;
   }
   
   /* Hide non-essential elements */
   .print\\:hidden,
   nav,
   aside,
-  footer,
+  header:not(.print-keep),
+  footer:not(.print-keep),
   button,
   .no-print {
     display: none !important;
   }
   
   /* Force light background */
-  body {
+  html, body {
     background: white !important;
-    color: #1a1a1a !important;
+    color: #0f172a !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    min-height: auto !important;
   }
   
-  /* Remove shadows and borders for cleaner print */
-  .print\\:shadow-none {
+  /* Reset any dark backgrounds */
+  .bg-slate-100 {
+    background: white !important;
+  }
+  
+  /* Remove shadows for cleaner print */
+  .print\\:shadow-none,
+  .shadow-xl,
+  .shadow-lg,
+  .shadow-md,
+  .shadow-sm,
+  .shadow {
     box-shadow: none !important;
   }
   
@@ -269,20 +281,78 @@
     background: white !important;
   }
   
-  /* Page margins */
+  /* Document container fixes */
+  .rounded-lg,
+  .rounded-xl {
+    border-radius: 0 !important;
+  }
+  
+  /* Page margins and size */
   @page {
-    margin: 0.75in;
-    size: letter;
+    margin: 0.5in 0.75in;
+    size: letter portrait;
   }
   
   /* Prevent page breaks inside elements */
-  table, tr, td, th {
+  table {
+    page-break-inside: auto;
+  }
+  
+  tr, td, th {
     page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  
+  thead {
+    display: table-header-group;
+  }
+  
+  tfoot {
+    display: table-footer-group;
+  }
+  
+  /* Ensure totals stay together */
+  .print\\:break-inside-avoid {
+    break-inside: avoid;
   }
   
   /* Ensure proper sizing */
   * {
     box-sizing: border-box;
+  }
+  
+  /* Max width reset for print */
+  .max-w-4xl,
+  .max-w-3xl,
+  .max-w-2xl {
+    max-width: 100% !important;
+  }
+  
+  /* Padding adjustments for print */
+  .px-8,
+  .px-12 {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  
+  .py-8 {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+  
+  /* Keep the accent bars visible */
+  .bg-slate-900.h-2,
+  .bg-slate-900.h-1 {
+    background: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Balance due box */
+  .bg-gradient-to-r {
+    background: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 }
 
