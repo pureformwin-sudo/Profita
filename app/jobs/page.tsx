@@ -391,6 +391,16 @@ const handleDeleteJob = async (id: string) => {
       }
     }
     await updateJob(jobId, { status })
+    
+    // Immediately update selectedJob so drawer shows new status
+    if (selectedJob && selectedJob.id === jobId) {
+      setSelectedJob({ ...selectedJob, status })
+    }
+    
+    // Also update jobs array immediately for list UI
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status } : j))
+    
+    // Then refresh from server for complete data sync
     loadData()
   }
 
@@ -424,12 +434,21 @@ const handleDeleteJob = async (id: string) => {
 
     await updateJob(jobId, updates)
     
+    // Immediately update selectedJob so drawer shows new state
+    if (selectedJob && selectedJob.id === jobId) {
+      setSelectedJob({ ...selectedJob, ...updates })
+    }
+    
+    // Also update jobs array immediately for list UI
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...updates } : j))
+    
     // Create notifications
     notifyPaymentReceived(amount, customerName, paymentMethod, jobId, job.customerId)
     if (paymentMethod === 'Cash' || paymentMethod === 'Check') {
       notifyPaymentNeedsDeposit(amount, customerName, paymentMethod)
     }
     
+    // Then refresh from server for complete data sync
     loadData()
   }
 
@@ -439,7 +458,17 @@ const handleDeleteJob = async (id: string) => {
 
     const invoice = await createInvoiceFromJob(jobId)
     if (invoice) {
-      await updateJob(jobId, { status: 'Invoiced', invoiceId: invoice.id })
+      const updates = { status: 'Invoiced' as JobStatus, invoiceId: invoice.id }
+      await updateJob(jobId, updates)
+      
+      // Immediately update selectedJob so drawer shows new state
+      if (selectedJob && selectedJob.id === jobId) {
+        setSelectedJob({ ...selectedJob, ...updates })
+      }
+      
+      // Also update jobs array immediately for list UI
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...updates } : j))
+      
       toast.success(`Invoice ${invoice.invoiceNumber} created!`)
       loadData()
     } else {

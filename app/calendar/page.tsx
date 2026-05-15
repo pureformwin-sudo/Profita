@@ -259,6 +259,12 @@ export default function CalendarPage() {
     
     await updateJob(selectedJob.id, { status })
     
+    // Immediately update selectedJob so modal shows new status
+    setSelectedJob({ ...selectedJob, status })
+    
+    // Also update jobs array immediately for calendar UI
+    setJobs(prev => prev.map(j => j.id === selectedJob.id ? { ...j, status } : j))
+    
     // If marking as Paid, also create income record to sync finances
     if (status === 'Paid') {
       await addIncome({
@@ -274,7 +280,7 @@ export default function CalendarPage() {
     }
     
     toast.success(`Job marked as ${status}`)
-    setShowJobModal(false)
+    // Don't close modal immediately - let user see the updated status
     loadData()
   }
 
