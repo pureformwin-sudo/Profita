@@ -322,15 +322,67 @@ export async function recordPayment(
       })
       .eq('id', input.invoiceId)
     
-    // If linked to a job, update job status
-    if (input.jobId && invoiceFullyPaid) {
+    // If linked to a job, update job status and paid_amount
+    if (input.jobId) {
+      // Get current job paid amount
+      const { data: jobData } = await supabase
+        .from('jobs')
+        .select('paid_amount, price, job_type, customers(name)')
+        .eq('id', input.jobId)
+        .maybeSingle()
+      
+      const currentPaidAmount = Number(jobData?.paid_amount) || 0
+      const newJobPaidAmount = currentPaidAmount + input.amount
+      const jobPrice = Number(jobData?.price) || 0
+      const jobFullyPaid = newJobPaidAmount >= jobPrice
+      
       await supabase
         .from('jobs')
         .update({ 
-          status: 'Paid',
-          paid_amount: input.amount 
+          status: jobFullyPaid ? 'Paid' : undefined,
+          paid_amount: newJobPaidAmount 
         })
         .eq('id', input.jobId)
+      
+      // Also add to income table for dashboard revenue tracking
+      const customerName = (jobData as any)?.customers?.name || 'Customer'
+      await supabase
+        .from('income')
+        .insert({
+          company_id: companyId,
+          user_id: user.id,
+          amount: input.amount,
+          date: input.paymentDate || new Date().toISOString().split('T')[0],
+          customer_name: customerName,
+          job_type: jobData?.job_type || 'Service',
+          payment_method: input.paymentMethod,
+          payment_status: 'Paid',
+          job_id: input.jobId,
+          notes: input.notes || 'Payment recorded',
+        })
+    } else {
+      // No job linked - still add to income table
+      // Get customer name
+      const { data: customer } = await supabase
+        .from('customers')
+        .select('name')
+        .eq('id', input.customerId)
+        .maybeSingle()
+      
+      await supabase
+        .from('income')
+        .insert({
+          company_id: companyId,
+          user_id: user.id,
+          amount: input.amount,
+          date: input.paymentDate || new Date().toISOString().split('T')[0],
+          customer_name: customer?.name || 'Customer',
+          job_type: 'Invoice Payment',
+          payment_method: input.paymentMethod,
+          payment_status: 'Paid',
+          job_id: null,
+          notes: input.notes || `Payment for invoice`,
+        })
     }
     
     // Trigger commission (non-blocking)
@@ -363,6 +415,31 @@ export async function recordPayment(
       invoiceFullyPaid,
       remainingBalance: invoiceTotal - newAmountPaid,
     }
+  }
+  
+  // For non-invoice payments that are completed, also add to income table
+  if ((input.status || 'completed') === 'completed') {
+    // Get customer name
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('name')
+      .eq('id', input.customerId)
+      .maybeSingle()
+    
+    await supabase
+      .from('income')
+      .insert({
+        company_id: companyId,
+        user_id: user.id,
+        amount: input.amount,
+        date: input.paymentDate || new Date().toISOString().split('T')[0],
+        customer_name: customer?.name || 'Customer',
+        job_type: 'Payment',
+        payment_method: input.paymentMethod,
+        payment_status: 'Paid',
+        job_id: input.jobId || null,
+        notes: input.notes || 'Payment recorded',
+      })
   }
   
   // Trigger commission for non-invoice payment (non-blocking)
