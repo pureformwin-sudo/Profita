@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
-import { getJobs, addJob, deleteJob, updateJob, getCustomers, addCustomer, addIncome, getIncome, getEmployees, addJobWorker, getJobWorkers, deleteJobWorker, createInvoiceFromJob, getEstimates, getInvoices, markInvoicePaid } from '@/lib/storage'
+import { getJobs, addJob, deleteJob, updateJob, getCustomers, addCustomer, addIncome, getIncome, getEmployees, addJobWorker, getJobWorkers, deleteJobWorker, createInvoiceFromJob, getEstimates, getInvoices, markInvoicePaid, updateInvoice } from '@/lib/storage'
+import { recordPayment } from '@/lib/payments-storage'
 import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, Estimate, Invoice, Income } from '@/lib/types'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { notifyJobCreated, notifyJobCompleted, notifyPaymentReceived, notifyPaymentNeedsDeposit } from '@/lib/in-app-notifications'
@@ -411,24 +412,56 @@ const handleDeleteJob = async (id: string) => {
     const customerName = getCustomerName(job.customerId)
     const newPaidAmount = (job.paidAmount || 0) + amount
     const remainingBalance = job.price - newPaidAmount
+    const fullyPaid = remainingBalance <= 0
 
-    // Add income record
-    await addIncome({
-      amount,
-      date: new Date().toISOString().split('T')[0],
-      customerName,
-      jobType: job.jobType,
-      paymentMethod,
-      paymentStatus: 'Paid',
-      jobId: job.id,
-      notes: notes || `Payment for job`,
-    })
+    // Check if job has a linked invoice
+    const linkedInvoice = job.invoiceId ? invoices.find(inv => inv.id === job.invoiceId) : null
+    
+    if (linkedInvoice) {
+      // Use recordPayment to properly sync invoice, job, and payment records
+      const result = await recordPayment({
+        invoiceId: linkedInvoice.id,
+        jobId: job.id,
+        customerId: job.customerId,
+        amount,
+        paymentMethod,
+        paymentDate: new Date().toISOString().split('T')[0],
+        notes: notes || `Payment for job`,
+        status: 'completed',
+      })
+      
+      if (!result.success) {
+        toast.error(result.error || 'Failed to record payment')
+        return
+      }
+      
+      // Update invoice in local state immediately
+      const newInvoiceAmountPaid = (linkedInvoice.amountPaid || 0) + amount
+      const invoiceFullyPaid = newInvoiceAmountPaid >= linkedInvoice.total
+      setInvoices(prev => prev.map(inv => 
+        inv.id === linkedInvoice.id 
+          ? { ...inv, amountPaid: newInvoiceAmountPaid, status: invoiceFullyPaid ? 'paid' : inv.status }
+          : inv
+      ))
+    } else {
+      // No linked invoice - just add income record (legacy flow)
+      await addIncome({
+        amount,
+        date: new Date().toISOString().split('T')[0],
+        customerName,
+        jobType: job.jobType,
+        paymentMethod,
+        paymentStatus: 'Paid',
+        jobId: job.id,
+        notes: notes || `Payment for job`,
+      })
+    }
 
     // Update job paid amount
     const updates: Partial<Job> = { paidAmount: newPaidAmount }
     
     // If fully paid, update status
-    if (remainingBalance <= 0) {
+    if (fullyPaid) {
       updates.status = 'Paid'
     }
 
@@ -447,6 +480,8 @@ const handleDeleteJob = async (id: string) => {
     if (paymentMethod === 'Cash' || paymentMethod === 'Check') {
       notifyPaymentNeedsDeposit(amount, customerName, paymentMethod)
     }
+    
+    toast.success(`Payment of $${amount.toFixed(2)} recorded!`)
     
     // Then refresh from server for complete data sync
     loadData()

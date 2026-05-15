@@ -1828,7 +1828,7 @@ export async function createInvoiceFromJob(
   const taxAmount = subtotal * (taxRate / 100)
   const total = subtotal + taxAmount
 
-  // Create invoice
+  // Create invoice with 'sent' status since it's being created from a completed job
   const { data: invoice, error: invError } = await supabase
     .from('invoices')
     .insert({
@@ -1838,7 +1838,7 @@ export async function createInvoiceFromJob(
       job_id: jobId,
       estimate_id: job.estimate_id,
       invoice_number: invoiceNumber,
-      status: 'draft',
+      status: 'sent', // Changed from 'draft' - invoice is ready for payment
       issue_date: today,
       due_date: dueDate.toISOString().split('T')[0],
       items,
