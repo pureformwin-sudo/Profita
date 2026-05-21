@@ -13,7 +13,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const publicPaths = ['/login', '/signup', '/forgot-password', '/auth/callback']
+const publicPaths = ['/login', '/signup', '/forgot-password', '/auth/callback', '/invite', '/pay', '/portal', '/worker', '/pending-approval']
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
