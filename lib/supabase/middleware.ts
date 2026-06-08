@@ -9,6 +9,8 @@ export async function updateSession(request: NextRequest) {
     || pathname.startsWith('/worker')
     || pathname.startsWith('/invite')
     || pathname.startsWith('/pay')
+    || pathname.startsWith('/reports')
+    || pathname.startsWith('/api/job-photos/public-file')
 
   let supabaseResponse = NextResponse.next({ request })
 

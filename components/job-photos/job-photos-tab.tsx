@@ -27,7 +27,6 @@ interface JobPhotosTabProps {
 
 const SECTIONS: { type: PhotoType; label: string }[] = [
   { type: "before", label: "Before" },
-  { type: "progress", label: "Progress" },
   { type: "after", label: "After" },
 ]
 
@@ -37,6 +36,7 @@ export function JobPhotosTab({ jobId, customerId, canEdit = true }: JobPhotosTab
   const [uploadingType, setUploadingType] = useState<PhotoType | null>(null)
   const [generating, setGenerating] = useState(false)
   const [view, setView] = useState<"gallery" | "compare">("gallery")
+  const [reportOpen, setReportOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -145,15 +145,23 @@ export function JobPhotosTab({ jobId, customerId, canEdit = true }: JobPhotosTab
           </TabsList>
         </Tabs>
 
-        {canEdit && canCompare && view === "compare" && (
-          <Button size="sm" variant="outline" onClick={handleGenerate} disabled={generating}>
-            {generating ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="mr-1.5 h-4 w-4" />
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            {canCompare && view === "compare" && (
+              <Button size="sm" variant="outline" onClick={handleGenerate} disabled={generating}>
+                {generating ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1.5 h-4 w-4" />
+                )}
+                Smart pair
+              </Button>
             )}
-            Smart pair
-          </Button>
+            <Button size="sm" onClick={() => setReportOpen(true)}>
+              <FileCheck2 className="mr-1.5 h-4 w-4" />
+              Send report
+            </Button>
+          </div>
         )}
       </div>
 
@@ -200,6 +208,13 @@ export function JobPhotosTab({ jobId, customerId, canEdit = true }: JobPhotosTab
           )}
         </div>
       )}
+
+      <CompletionReportDialog
+        jobId={jobId}
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        photoCount={photos.length}
+      />
     </div>
   )
 }

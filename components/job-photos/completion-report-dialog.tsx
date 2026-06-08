@@ -22,9 +22,10 @@ interface CompletionReportDialogProps {
   jobId: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  photoCount?: number
 }
 
-export function CompletionReportDialog({ jobId, open, onOpenChange }: CompletionReportDialogProps) {
+export function CompletionReportDialog({ jobId, open, onOpenChange, photoCount = 0 }: CompletionReportDialogProps) {
   const [technicianNotes, setTechnicianNotes] = useState("")
   const [thankYouMessage, setThankYouMessage] = useState("")
   const [send, setSend] = useState(true)
@@ -93,7 +94,8 @@ export function CompletionReportDialog({ jobId, open, onOpenChange }: Completion
             Completion Report
           </DialogTitle>
           <DialogDescription>
-            Generate a shareable report with before & after photos for the customer.
+            Generate a shareable report with before &amp; after photos for the customer.
+            {photoCount > 0 ? ` ${photoCount} photo${photoCount > 1 ? "s" : ""} attached.` : " No photos attached yet."}
           </DialogDescription>
         </DialogHeader>
 

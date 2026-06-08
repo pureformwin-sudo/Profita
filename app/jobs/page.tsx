@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { getJobs, addJob, deleteJob, updateJob, getCustomers, addCustomer, getIncome, getEmployees, addJobWorker, getJobWorkers, deleteJobWorker, createInvoiceFromJob, getEstimates, getInvoices, markInvoicePaid, updateInvoice } from '@/lib/storage'
 import { recordPayment } from '@/lib/payments-storage'
+import { generateCompletionReport } from '@/lib/job-photos-storage'
 import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, Estimate, Invoice, Income } from '@/lib/types'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { notifyJobCreated, notifyJobCompleted, notifyPaymentReceived, notifyPaymentNeedsDeposit } from '@/lib/in-app-notifications'
@@ -319,6 +320,24 @@ const handleDeleteJob = async (id: string) => {
       const customer = customers.find(c => c.id === job.customerId)
       if (customer && (customer.phone || customer.email)) {
         setNotificationJob(job)
+      }
+
+      // Auto-generate and send the completion report (with before/after photos)
+      try {
+        const result = await generateCompletionReport({
+          jobId,
+          send: true,
+          channel: 'both',
+        })
+        const emailOk = result.sent.email?.success
+        const smsOk = result.sent.sms?.success
+        if (emailOk || smsOk) {
+          toast.success(
+            `Completion report sent${emailOk && smsOk ? ' via email & text' : emailOk ? ' via email' : ' via text'}`,
+          )
+        }
+      } catch (err) {
+        console.error('[v0] auto report send failed:', err)
       }
     }
   }
