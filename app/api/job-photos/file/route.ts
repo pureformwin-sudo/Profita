@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const { data: photo } = await supabase
       .from('job_photos')
       .select('id')
-      .eq('pathname', pathname)
+      .eq('storage_path', pathname)
       .maybeSingle()
 
     if (!photo) {

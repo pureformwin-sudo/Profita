@@ -54,8 +54,8 @@ interface JobDetail {
 
 interface JobPhoto {
   id: string
-  pathname: string
-  phase: 'before' | 'after'
+  storage_path: string
+  photo_type: 'before' | 'progress' | 'after'
   created_at: string
 }
 
@@ -137,7 +137,7 @@ export default function CrewJobDetailPage() {
 
     const { data: photoData } = await supabase
       .from('job_photos')
-      .select('id, pathname, phase, created_at')
+      .select('id, storage_path, photo_type, created_at')
       .eq('job_id', jobId)
       .order('created_at', { ascending: true })
     setPhotos((photoData as JobPhoto[]) || [])
@@ -310,8 +310,8 @@ export default function CrewJobDetailPage() {
   }
 
   const totalHrs = totalHoursFromEvents(events, currentUserId)
-  const beforePhotos = photos.filter(p => p.phase === 'before')
-  const afterPhotos = photos.filter(p => p.phase === 'after')
+  const beforePhotos = photos.filter(p => p.photo_type === 'before')
+  const afterPhotos = photos.filter(p => p.photo_type === 'after')
 
   return (
     <AppShell>
@@ -636,14 +636,14 @@ function PhotoSection({
             {photos.map((p) => (
               <a
                 key={p.id}
-                href={`/api/job-photos/file?pathname=${encodeURIComponent(p.pathname)}`}
+                href={`/api/job-photos/file?pathname=${encodeURIComponent(p.storage_path)}`}
                 target="_blank"
                 rel="noreferrer"
                 className="relative aspect-square rounded-md overflow-hidden bg-muted ring-1 ring-border"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={`/api/job-photos/file?pathname=${encodeURIComponent(p.pathname)}`}
+                  src={`/api/job-photos/file?pathname=${encodeURIComponent(p.storage_path)}`}
                   alt={`${phase} photo`}
                   className="w-full h-full object-cover"
                 />
