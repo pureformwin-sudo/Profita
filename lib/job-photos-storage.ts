@@ -240,3 +240,47 @@ export async function deletePhotoComparison(comparisonId: string): Promise<void>
     .eq('id', comparisonId)
   if (error) throw new Error(error.message)
 }
+
+// ---------------------------------------------------------------------------
+// Completion Reports
+// ---------------------------------------------------------------------------
+
+export interface GenerateReportResult {
+  reportUrl: string
+  report: any
+  sent: {
+    email: { success: boolean; error?: string } | null
+    sms: { success: boolean; error?: string } | null
+  }
+}
+
+export async function generateCompletionReport(params: {
+  jobId: string
+  technicianNotes?: string
+  thankYouMessage?: string
+  send?: boolean
+  channel?: 'email' | 'sms' | 'both'
+}): Promise<GenerateReportResult> {
+  const res = await fetch('/api/job-photos/report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.error || 'Failed to generate report')
+  return json as GenerateReportResult
+}
+
+export async function getCompletionReport(jobId: string): Promise<any | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('job_completion_reports')
+    .select('*')
+    .eq('job_id', jobId)
+    .maybeSingle()
+  if (error && error.code !== 'PGRST116') {
+    console.error('[job-photos] getCompletionReport failed:', error)
+    return null
+  }
+  return data
+}

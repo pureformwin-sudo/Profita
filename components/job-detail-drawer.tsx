@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { JobPhotosTab } from '@/components/job-photos/job-photos-tab'
 
 const paymentMethods: PaymentMethod[] = ['Cash', 'Card', 'Check', 'Zelle', 'Venmo', 'Other']
 
@@ -513,6 +514,28 @@ export function JobDetailDrawer({
                   <Button variant="outline" size="sm" className="w-full mt-3" onClick={() => toast.info('Add note coming soon')}>
                     Add Note
                   </Button>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Photos Section */}
+            <Collapsible open={expandedSections.includes('photos')} onOpenChange={() => toggleSection('photos')}>
+              <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">Photos</span>
+                </div>
+                {expandedSections.includes('photos') ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="px-4 py-4 bg-muted/20 border-b border-border">
+                  {customer ? (
+                    <JobPhotosTab jobId={job.id} customerId={customer.id} canEdit />
+                  ) : (
+                    <p className="text-xs text-muted-foreground text-center">
+                      Link a customer to this job to add photos.
+                    </p>
+                  )}
                 </div>
               </CollapsibleContent>
             </Collapsible>
