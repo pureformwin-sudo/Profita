@@ -347,10 +347,13 @@ export default function SalesHomePage() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base font-semibold">Daily Targets</CardTitle>
             <span className={cn(
-              'text-sm font-semibold',
-              isOnPace ? 'text-emerald-400' : 'text-red-400'
+              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
+              isOnPace
+                ? 'bg-emerald-500/15 text-emerald-400'
+                : 'bg-red-500/15 text-red-400'
             )}>
-              {isOnPace ? 'On pace' : '! Behind pace'}
+              <span className={cn('h-1.5 w-1.5 rounded-full', isOnPace ? 'bg-emerald-400' : 'bg-red-400')} />
+              {isOnPace ? 'On pace' : 'Behind pace'}
             </span>
           </div>
         </CardHeader>
@@ -364,7 +367,7 @@ export default function SalesHomePage() {
               </div>
               <span className="font-semibold text-white">{todayStats.doors} / {DAILY_TARGETS.doors}</span>
             </div>
-            <Progress value={doorProgress} className="h-2 bg-zinc-800" />
+            <Progress value={doorProgress} className="h-2.5 bg-zinc-800 [&>div]:bg-purple-500" />
           </div>
 
           {/* Leads/Jobs */}
@@ -376,7 +379,7 @@ export default function SalesHomePage() {
               </div>
               <span className="font-semibold text-white">{todayStats.closes} / {DAILY_TARGETS.leads}</span>
             </div>
-            <Progress value={leadProgress} className="h-2 bg-zinc-800" />
+            <Progress value={leadProgress} className="h-2.5 bg-zinc-800 [&>div]:bg-emerald-500" />
           </div>
 
           {/* Revenue */}
@@ -388,7 +391,7 @@ export default function SalesHomePage() {
               </div>
               <span className="font-semibold text-white">${todayStats.revenue.toLocaleString()} / ${DAILY_TARGETS.revenue.toLocaleString()}</span>
             </div>
-            <Progress value={revenueProgress} className="h-2 bg-zinc-800" />
+            <Progress value={revenueProgress} className="h-2.5 bg-zinc-800 [&>div]:bg-amber-500" />
           </div>
 
           {/* Time remaining */}
@@ -415,58 +418,89 @@ export default function SalesHomePage() {
         </CardHeader>
         <CardContent>
           {/* Week summary */}
-          <div className="grid grid-cols-4 gap-4 mb-4">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-white">{weekStats.doors}</p>
-              <p className="text-xs text-zinc-500">Doors</p>
+          <div className="grid grid-cols-4 gap-2 mb-5">
+            <div className="rounded-xl bg-zinc-800/40 px-2 py-3 text-center">
+              <p className="text-xl font-bold tabular-nums text-white">{weekStats.doors}</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">Doors</p>
             </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-white">{weekStats.leads}</p>
-              <p className="text-xs text-zinc-500">Leads</p>
+            <div className="rounded-xl bg-zinc-800/40 px-2 py-3 text-center">
+              <p className="text-xl font-bold tabular-nums text-white">{weekStats.leads}</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">Leads</p>
             </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-white">{weekStats.closes}</p>
-              <p className="text-xs text-zinc-500">Closes</p>
+            <div className="rounded-xl bg-zinc-800/40 px-2 py-3 text-center">
+              <p className="text-xl font-bold tabular-nums text-white">{weekStats.closes}</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">Closes</p>
             </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-emerald-400">${weekStats.revenue.toLocaleString()}</p>
-              <p className="text-xs text-zinc-500">Revenue</p>
+            <div className="rounded-xl bg-emerald-500/10 px-2 py-3 text-center">
+              <p className="text-xl font-bold tabular-nums text-emerald-400">${weekStats.revenue.toLocaleString()}</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">Revenue</p>
             </div>
           </div>
 
           {/* Weekly chart */}
-          <div className="h-24 flex items-end gap-1">
-            {weekStats.days.map((day, i) => {
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-zinc-400">Doors per day</span>
+            <div className="flex items-center gap-1.5">
+              <div className="w-4 border-t border-dashed border-amber-500/70" />
+              <span className="text-[10px] text-zinc-500">Target {DAILY_TARGETS.doors}</span>
+            </div>
+          </div>
+          <div className="relative h-32 rounded-xl bg-zinc-800/30 px-2 pt-4 pb-1">
+            {(() => {
               const maxDoors = Math.max(...weekStats.days.map(d => d.doors), DAILY_TARGETS.doors)
-              const height = maxDoors > 0 ? (day.doors / maxDoors) * 100 : 0
+              const targetPct = maxDoors > 0 ? (DAILY_TARGETS.doors / maxDoors) * 100 : 100
+              return (
+                <>
+                  {/* Target line */}
+                  <div
+                    className="absolute left-2 right-2 border-t border-dashed border-amber-500/50"
+                    style={{ bottom: `calc(${targetPct}% * 0.82 + 0.25rem)` }}
+                  />
+                  <div className="flex h-full items-end gap-1.5">
+                    {weekStats.days.map((day, i) => {
+                      const height = maxDoors > 0 ? (day.doors / maxDoors) * 100 : 0
+                      const isToday = day.date === today
+                      return (
+                        <div key={i} className="flex flex-1 flex-col items-center justify-end gap-1">
+                          {day.doors > 0 && (
+                            <span className={cn(
+                              'text-[10px] font-semibold tabular-nums',
+                              isToday ? 'text-emerald-400' : 'text-zinc-400'
+                            )}>
+                              {day.doors}
+                            </span>
+                          )}
+                          <div
+                            className={cn(
+                              'w-full max-w-[28px] rounded-md transition-all',
+                              isToday ? 'bg-emerald-500' : day.doors > 0 ? 'bg-zinc-600' : 'bg-zinc-700/40'
+                            )}
+                            style={{ height: `${Math.max(height, 3)}%` }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+          {/* Day labels */}
+          <div className="mt-1.5 flex gap-1.5">
+            {weekStats.days.map((day, i) => {
               const isToday = day.date === today
               return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full flex items-end justify-center" style={{ height: '80px' }}>
-                    <div
-                      className={cn(
-                        'w-full max-w-[32px] rounded-t transition-all',
-                        isToday ? 'bg-emerald-500' : 'bg-zinc-700',
-                        height === 0 && 'min-h-[4px]'
-                      )}
-                      style={{ height: `${Math.max(height, 4)}%` }}
-                    />
-                  </div>
-                  <span className={cn(
-                    'text-[10px] font-medium',
+                <span
+                  key={i}
+                  className={cn(
+                    'flex-1 text-center text-[10px] font-medium',
                     isToday ? 'text-emerald-400' : 'text-zinc-500'
-                  )}>
-                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]}
-                  </span>
-                </div>
+                  )}
+                >
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]}
+                </span>
               )
             })}
-          </div>
-          
-          {/* Target line label */}
-          <div className="flex items-center justify-end gap-1 mt-2">
-            <div className="w-4 border-t border-dashed border-zinc-600" />
-            <span className="text-[10px] text-zinc-500">Target</span>
           </div>
         </CardContent>
       </Card>
@@ -627,28 +661,30 @@ function CounterCard({
   isRevenue?: boolean
 }) {
   return (
-    <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4">
-      <div className="flex items-start justify-between mb-2">
-        <div className={cn('h-9 w-9 rounded-lg flex items-center justify-center', iconBg)}>
-          <Icon className={cn('h-4 w-4', iconColor)} />
+    <div className="group relative overflow-hidden bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4 transition-colors hover:border-zinc-700">
+      <div className="flex items-center justify-between gap-2">
+        <div className={cn('h-10 w-10 shrink-0 rounded-xl flex items-center justify-center', iconBg)}>
+          <Icon className={cn('h-5 w-5', iconColor)} />
         </div>
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col gap-1">
           <button
             onClick={onIncrement}
-            className="p-1 text-zinc-500 hover:text-white transition-colors"
+            aria-label={`Increase ${label}`}
+            className="h-6 w-6 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
           >
-            <ChevronUp className="h-4 w-4" />
+            <ChevronUp className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={onDecrement}
-            className="p-1 text-zinc-500 hover:text-white transition-colors"
+            aria-label={`Decrease ${label}`}
+            className="h-6 w-6 rounded-md bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
           >
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
-      <p className="text-2xl font-bold text-white">{value}</p>
-      <p className="text-xs text-zinc-500">{label}</p>
+      <p className="mt-3 text-3xl font-bold tabular-nums leading-none text-white">{value}</p>
+      <p className="mt-1.5 text-xs font-medium text-zinc-500">{label}</p>
     </div>
   )
 }
