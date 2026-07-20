@@ -78,6 +78,8 @@ import {
   type CustomerPlan,
   type PlanAutomations,
 } from '@/lib/plans-storage'
+import { ServiceScheduleSection } from '@/components/plans/service-schedule'
+import { PlanMembersDialog } from '@/components/plans/plan-members-dialog'
 
 const FREQUENCIES = [
   { value: 'monthly', label: 'Monthly' },
@@ -109,6 +111,7 @@ export default function PlansPage() {
   const [editingPlan, setEditingPlan] = useState<ServicePlan | null>(null)
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [assigningCustomer, setAssigningCustomer] = useState<Customer | null>(null)
+  const [planDetail, setPlanDetail] = useState<ServicePlan | null>(null)
   
   // Form state
   const [planForm, setPlanForm] = useState({
@@ -161,6 +164,13 @@ export default function PlansPage() {
     }
     loadData()
   }, [])
+
+  // Re-fetch just the customer plans (used after a schedule edit so the
+  // schedule section, plan detail, and memberships table all stay in sync).
+  const refreshCustomerPlans = async () => {
+    const fresh = await getCustomerPlans()
+    setCustomerPlans(fresh)
+  }
 
   // Computed stats
   const stats = useMemo(() => {
@@ -616,6 +626,16 @@ CREATE POLICY plan_automations_all_own ON plan_automations FOR ALL TO authentica
         </Card>
       </div>
 
+      {/* Service Schedule */}
+      {!tablesMissing && (
+        <ServiceScheduleSection
+          plans={plans}
+          customerPlans={customerPlans}
+          customers={customers}
+          onRefresh={refreshCustomerPlans}
+        />
+      )}
+
       {/* Plans Grid + Insights */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Plans List */}
@@ -665,6 +685,10 @@ CREATE POLICY plan_automations_all_own ON plan_automations FOR ALL TO authentica
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setPlanDetail(plan)}>
+                              <Users className="h-4 w-4 mr-2" />
+                              View members &amp; schedule
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openEditPlan(plan)}>
                               <Pencil className="h-4 w-4 mr-2" />
                               Edit
