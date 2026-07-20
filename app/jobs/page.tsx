@@ -14,6 +14,7 @@ import { recordPayment } from '@/lib/payments-storage'
 import { generateCompletionReport } from '@/lib/job-photos-storage'
 import { advanceServiceScheduleForCustomer, getCustomerPlans, getServicePlans, getActiveMembershipForCustomer, enrollCustomerInPlanFromJob, effectivePlanPrice, addInterval, type CustomerPlan, type ServicePlan } from '@/lib/plans-storage'
 import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, Estimate, Invoice, Income, PendingPlanEnrollment } from '@/lib/types'
+import type { PaymentMethod as PaymentsPaymentMethod } from '@/lib/payments-types'
 import { Switch } from '@/components/ui/switch'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { notifyJobCreated, notifyJobCompleted, notifyPaymentReceived, notifyPaymentNeedsDeposit } from '@/lib/in-app-notifications'
@@ -614,7 +615,9 @@ const handleDeleteJob = async (id: string) => {
       jobId: selectedJobForPaid.id,
       customerId: selectedJobForPaid.customerId,
       amount: selectedJobForPaid.price,
-      paymentMethod: selectedPaymentMethod,
+      // App stores capitalized payment methods (matches all historical data);
+      // recordPayment's type uses a lowercase enum, so cast to preserve value.
+      paymentMethod: selectedPaymentMethod as unknown as PaymentsPaymentMethod,
       paymentDate: selectedJobForPaid.date,
       notes: `Payment for job`,
       status: 'completed',
@@ -730,7 +733,7 @@ const handleDeleteJob = async (id: string) => {
       jobId: job.id,
       customerId: job.customerId,
       amount,
-      paymentMethod,
+      paymentMethod: paymentMethod as unknown as PaymentsPaymentMethod,
       paymentDate: new Date().toISOString().split('T')[0],
       notes: notes || `Payment for job`,
       status: 'completed',
