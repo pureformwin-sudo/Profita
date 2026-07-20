@@ -12,8 +12,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { getJobs, addJob, deleteJob, updateJob, getCustomers, addCustomer, getIncome, getEmployees, addJobWorker, getJobWorkers, deleteJobWorker, createInvoiceFromJob, getEstimates, getInvoices, markInvoicePaid, updateInvoice } from '@/lib/storage'
 import { recordPayment } from '@/lib/payments-storage'
 import { generateCompletionReport } from '@/lib/job-photos-storage'
-import { advanceServiceScheduleForCustomer, getCustomerPlans, getServicePlans, type CustomerPlan, type ServicePlan } from '@/lib/plans-storage'
-import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, Estimate, Invoice, Income } from '@/lib/types'
+import { advanceServiceScheduleForCustomer, getCustomerPlans, getServicePlans, getActiveMembershipForCustomer, enrollCustomerInPlanFromJob, effectivePlanPrice, addInterval, type CustomerPlan, type ServicePlan } from '@/lib/plans-storage'
+import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, Estimate, Invoice, Income, PendingPlanEnrollment } from '@/lib/types'
+import { Switch } from '@/components/ui/switch'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { notifyJobCreated, notifyJobCompleted, notifyPaymentReceived, notifyPaymentNeedsDeposit } from '@/lib/in-app-notifications'
 import { formatDate } from '@/lib/utils-finance'
@@ -76,6 +77,29 @@ export default function JobsPage() {
     planName: string
     nextServiceDate: string | null
   } | null>(null)
+
+  // Service Plans data (for the "Recurring Service Plan" enrollment section).
+  const [servicePlans, setServicePlans] = useState<ServicePlan[]>([])
+  const [customerPlans, setCustomerPlans] = useState<CustomerPlan[]>([])
+
+  // In-form recurring-enrollment intent. `enabled` defaults OFF. When ON and a
+  // plan is picked, we store a PendingPlanEnrollment on the job that activates
+  // on completion (never immediately).
+  const [enroll, setEnroll] = useState<{
+    enabled: boolean
+    planId: string
+    priceOverride: string // empty = inherit master plan price
+    autoRenew: boolean
+    startDate: string
+    note: string
+  }>({
+    enabled: false,
+    planId: '',
+    priceOverride: '',
+    autoRenew: true,
+    startDate: new Date().toISOString().split('T')[0],
+    note: '',
+  })
 
   // New customer form
   const [newCustomer, setNewCustomer] = useState({
@@ -164,13 +188,15 @@ export default function JobsPage() {
   }
 
 const loadData = async () => {
-  const [jobsData, customersData, employeesData, estimatesData, invoicesData, incomesData] = await Promise.all([
+  const [jobsData, customersData, employeesData, estimatesData, invoicesData, incomesData, cpData, plansResult] = await Promise.all([
   getJobs(),
   getCustomers(),
   getEmployees(),
   getEstimates(),
   getInvoices(),
   getIncome(),
+  getCustomerPlans(),
+  getServicePlans(),
   ])
   setJobs(jobsData)
   setCustomers(customersData)
@@ -178,6 +204,8 @@ const loadData = async () => {
   setEstimates(estimatesData)
   setInvoices(invoicesData)
   setIncomes(incomesData)
+  setCustomerPlans(cpData)
+  setServicePlans(plansResult.data.filter((p) => p.active))
   return { jobs: jobsData, customers: customersData }
   }
 
@@ -197,6 +225,14 @@ const loadData = async () => {
     setNewCustomer({ name: '', email: '', phone: '', address: '' })
     setShowNewCustomerForm(false)
     setLinkedPlan(null)
+    setEnroll({
+      enabled: false,
+      planId: '',
+      priceOverride: '',
+      autoRenew: true,
+      startDate: new Date().toISOString().split('T')[0],
+      note: '',
+    })
   }
 
   const openNewJobPanel = () => {
@@ -219,6 +255,18 @@ const openEditJobPanel = async (job: Job) => {
       notes: job.notes || '',
     })
     
+    // Hydrate the recurring-enrollment section from any pending intent stored
+    // on the job (so editing a job preserves an unactivated enrollment).
+    const ppe = job.pendingPlanEnrollment
+    setEnroll({
+      enabled: !!ppe,
+      planId: ppe?.planId || '',
+      priceOverride: ppe?.priceOverride != null ? String(ppe.priceOverride) : '',
+      autoRenew: ppe?.autoRenew ?? true,
+      startDate: ppe?.anchorDate || job.date?.split('T')[0] || new Date().toISOString().split('T')[0],
+      note: ppe?.note || '',
+    })
+
     // Load existing workers
     const workers = await getJobWorkers(job.id)
     setJobWorkers(workers)
@@ -257,6 +305,27 @@ const openEditJobPanel = async (job: Job) => {
       return
     }
 
+    // Validate recurring-enrollment selection if the section is turned on.
+    if (enroll.enabled && !enroll.planId) {
+      toast.error('Select a Service Plan to enroll the customer, or turn off recurring service')
+      return
+    }
+
+    // Build the pending enrollment intent from the form. It is stored on the job
+    // and only ACTIVATED when the job is Completed/Paid (see handleStatusChange /
+    // handleMarkAsPaid). null means "no recurring enrollment".
+    const pendingPlanEnrollment: PendingPlanEnrollment | null =
+      enroll.enabled && enroll.planId
+        ? {
+            planId: enroll.planId,
+            priceOverride: enroll.priceOverride.trim() !== '' ? parseFloat(enroll.priceOverride) : null,
+            autoRenew: enroll.autoRenew,
+            note: enroll.note.trim() || null,
+            anchorDate: enroll.startDate || null,
+            mode: 'enroll',
+          }
+        : null
+
     setIsSubmitting(true)
 
     try {
@@ -272,6 +341,7 @@ const openEditJobPanel = async (job: Job) => {
   expenses: jobForm.expenses ? parseFloat(jobForm.expenses) : undefined,
   status: jobForm.status,
   notes: jobForm.notes,
+  pendingPlanEnrollment,
   })
         
         if (result) {
@@ -317,6 +387,7 @@ const openEditJobPanel = async (job: Job) => {
   // Link to the membership when scheduling a recurring service. This does NOT
   // change the recurring next_service_date — that only advances on completion.
   customerPlanId: linkedPlan?.customerPlanId || null,
+  pendingPlanEnrollment,
   })
 
         if (result) {
@@ -342,6 +413,13 @@ const openEditJobPanel = async (job: Job) => {
           
           toast.success('Job created!')
         }
+      }
+
+      // If the job is being saved as already Completed/Paid AND recurring
+      // enrollment is on, activate the enrollment now (anchor = service date)
+      // instead of waiting for a status change. Idempotent + reuses membership.
+      if (pendingPlanEnrollment && (jobForm.status === 'Completed' || jobForm.status === 'Paid')) {
+        await activatePendingEnrollment(jobForm.customerId, pendingPlanEnrollment, jobForm.date)
       }
 
       setShowJobPanel(false)

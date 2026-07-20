@@ -59,6 +59,18 @@ export interface CustomerPlan {
   auto_renew: boolean | null // null = inherit from plan
   frequency_override: string | null // null = use plan frequency
   custom_days_override: number | null
+  // Per-member agreed price (script 33). null = inherit master plan price.
+  price_override: number | null
+}
+
+// Resolve the effective recurring price for a membership: the per-member
+// override if set, otherwise the master plan price.
+export function effectivePlanPrice(
+  cp: Pick<CustomerPlan, 'price_override'>,
+  plan: { price: number | null } | null | undefined,
+): number | null {
+  if (cp.price_override != null) return cp.price_override
+  return plan?.price ?? null
 }
 
 // Derived schedule status for a membership (not stored — computed from dates).
@@ -487,6 +499,124 @@ export async function advanceServiceScheduleForCustomer(
     return { advanced: false, nextServiceDate: null, reason: updErr.message }
   }
   return { advanced: true, nextServiceDate }
+}
+
+// Look up the customer's current membership row (unique per customer). Returns
+// null if they have none. Used to detect "already enrolled" and plan conflicts
+// BEFORE creating anything, so we never make duplicate memberships.
+export async function getActiveMembershipForCustomer(
+  customerId: string,
+): Promise<CustomerPlan | null> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data, error } = await supabase
+    .from('customer_plans')
+    .select('*')
+    .eq('customer_id', customerId)
+    .maybeSingle()
+
+  if (error) {
+    if (error.code === 'PGRST116') return null // no rows
+    console.error('[Plans] Failed to load membership for customer:', error.message)
+    return null
+  }
+  return data
+}
+
+export type EnrollResult =
+  | { status: 'enrolled'; membership: CustomerPlan }
+  | { status: 'already-enrolled'; membership: CustomerPlan }
+  | { status: 'conflict'; membership: CustomerPlan } // active on a DIFFERENT plan, needs confirmation
+  | { status: 'error'; error: string }
+
+// Enroll (or re-enroll) a customer into a specific EXISTING service plan, using
+// a completed job's actual service date as the schedule anchor. Safe:
+//   - Reuses the existing customer_plans row (unique per customer) — never
+//     creates a duplicate membership and never creates a new plan.
+//   - If they're already active on the SAME plan, returns 'already-enrolled'
+//     without changing their schedule (unless a fresh anchor advances it).
+//   - If they're active on a DIFFERENT plan and confirmChange is false, returns
+//     'conflict' and changes nothing (caller must confirm).
+//   - Honors a per-member price override and optional auto_renew / note.
+//   - Computes next_service_date from the anchor using existing calendar logic.
+export async function enrollCustomerInPlanFromJob(params: {
+  customerId: string
+  planId: string
+  anchorDate: string // YYYY-MM-DD (the job's completed service date)
+  priceOverride?: number | null
+  autoRenew?: boolean | null
+  note?: string | null
+  confirmChange?: boolean
+}): Promise<EnrollResult> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { status: 'error', error: 'Not authenticated. Please sign in again.' }
+
+  const { customerId, planId, anchorDate } = params
+
+  const { data: plan } = await supabase
+    .from('service_plans')
+    .select('id, frequency, custom_days')
+    .eq('id', planId)
+    .maybeSingle()
+  if (!plan) return { status: 'error', error: 'Selected plan no longer exists.' }
+
+  const existing = await getActiveMembershipForCustomer(customerId)
+
+  // Already actively enrolled on this exact plan → don't duplicate.
+  if (existing && existing.status === 'active' && existing.plan_id === planId) {
+    return { status: 'already-enrolled', membership: existing }
+  }
+
+  // Active on a DIFFERENT plan → require explicit confirmation before changing.
+  if (
+    existing &&
+    existing.status === 'active' &&
+    existing.plan_id &&
+    existing.plan_id !== planId &&
+    !params.confirmChange
+  ) {
+    return { status: 'conflict', membership: existing }
+  }
+
+  const nextServiceDate = plan.frequency
+    ? addInterval(anchorDate, plan.frequency, plan.custom_days)
+    : null
+
+  // Build the row. Upsert on customer_id reuses the single membership row.
+  const row: Record<string, unknown> = {
+    user_id: user.id,
+    customer_id: customerId,
+    plan_id: planId,
+    status: 'active',
+    start_date: existing?.start_date || anchorDate,
+    service_start_date: existing?.service_start_date || anchorDate,
+    last_service_date: anchorDate,
+    next_service_date: nextServiceDate,
+    updated_at: new Date().toISOString(),
+  }
+  if (params.priceOverride !== undefined) row.price_override = params.priceOverride
+  if (params.autoRenew !== undefined && params.autoRenew !== null) row.auto_renew = params.autoRenew
+  if (params.note != null && params.note !== '') row.notes = params.note
+  // Preserve counters when re-using an existing row.
+  if (!existing) {
+    row.autopay = false
+    row.visits_used = 0
+  }
+
+  const { data, error } = await supabase
+    .from('customer_plans')
+    .upsert(row, { onConflict: 'customer_id' })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('[Plans] Failed to enroll customer from job:', error.message)
+    return { status: 'error', error: error.message }
+  }
+  return { status: 'enrolled', membership: data }
 }
 
 // Initialize recurring schedules for EXISTING memberships from real completed

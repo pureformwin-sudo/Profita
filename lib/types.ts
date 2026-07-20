@@ -76,12 +76,24 @@ export interface Expense {
   createdAt: string
 }
 
+// Intent to enroll a customer in a recurring Service Plan, captured on a job
+// and activated ONLY when the job is Completed/Paid.
+export interface PendingPlanEnrollment {
+  planId: string
+  priceOverride: number | null   // null = use master plan price
+  autoRenew: boolean | null      // null = inherit plan setting
+  note: string | null            // optional internal note stored on the membership
+  anchorDate: string | null      // YYYY-MM-DD; defaults to the job's service date
+  mode: 'enroll' | 'change'      // 'change' = user confirmed replacing a different active plan
+}
+
 export interface Job {
   id: string
   customerId: string
   estimateId?: string  // Linked estimate (if created from estimate)
   invoiceId?: string   // Linked invoice (if invoice was created for this job)
   customerPlanId?: string | null  // Linked service-plan membership (recurring occurrence)
+  pendingPlanEnrollment?: PendingPlanEnrollment | null // enroll on completion
   date: string
   startTime?: string   // HH:mm format
   endTime?: string     // HH:mm format
