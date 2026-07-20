@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { getJobs, addJob, deleteJob, updateJob, getCustomers, addCustomer, getIncome, getEmployees, addJobWorker, getJobWorkers, deleteJobWorker, createInvoiceFromJob, getEstimates, getInvoices, markInvoicePaid, updateInvoice } from '@/lib/storage'
 import { recordPayment } from '@/lib/payments-storage'
 import { generateCompletionReport } from '@/lib/job-photos-storage'
+import { advanceServiceScheduleForCustomer } from '@/lib/plans-storage'
 import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, Estimate, Invoice, Income } from '@/lib/types'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { notifyJobCreated, notifyJobCompleted, notifyPaymentReceived, notifyPaymentNeedsDeposit } from '@/lib/in-app-notifications'
@@ -322,6 +323,21 @@ const handleDeleteJob = async (id: string) => {
         setNotificationJob(job)
       }
 
+      // Advance the customer's recurring service schedule if they're on an
+      // active plan. Idempotent + never creates jobs, so it's safe to call here.
+      if (job.customerId) {
+        try {
+          const today = new Date().toISOString().split('T')[0]
+          const res = await advanceServiceScheduleForCustomer(job.customerId, today)
+          if (res.advanced && res.nextServiceDate) {
+            const nice = new Date(res.nextServiceDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            toast.success(`Next service scheduled for ${nice}`)
+          }
+        } catch (err) {
+          console.error('[v0] advance service schedule failed:', err)
+        }
+      }
+
       // Auto-generate and send the completion report (with before/after photos)
       try {
         const result = await generateCompletionReport({
@@ -367,6 +383,17 @@ const handleDeleteJob = async (id: string) => {
     
     // Update job status
     await updateJob(selectedJobForPaid.id, { status: 'Paid', paidAmount: selectedJobForPaid.price })
+
+    // Advance recurring service schedule (idempotent — safe if the job was
+    // already marked Completed earlier, which would have advanced it).
+    if (selectedJobForPaid.customerId) {
+      try {
+        const today = new Date().toISOString().split('T')[0]
+        await advanceServiceScheduleForCustomer(selectedJobForPaid.customerId, today)
+      } catch (err) {
+        console.error('[v0] advance service schedule (paid) failed:', err)
+      }
+    }
     
     toast.success(`Job paid via ${selectedPaymentMethod}!`)
     setShowPaidModal(false)

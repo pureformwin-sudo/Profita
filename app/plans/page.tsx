@@ -1239,6 +1239,16 @@ CREATE POLICY plan_automations_all_own ON plan_automations FOR ALL TO authentica
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Plan members & schedule detail */}
+      <PlanMembersDialog
+        plan={planDetail}
+        open={!!planDetail}
+        onOpenChange={(open) => { if (!open) setPlanDetail(null) }}
+        customerPlans={customerPlans}
+        customers={customers}
+        onRefresh={refreshCustomerPlans}
+      />
       </div>
     </AppShell>
   )

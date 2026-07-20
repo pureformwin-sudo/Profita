@@ -100,28 +100,45 @@ export function frequencyToDays(frequency: string, customDays?: number | null): 
   }
 }
 
-// Add one recurrence interval to a YYYY-MM-DD date string. Uses calendar
-// months/years where appropriate so dates stay on the same day-of-month.
+// Add N calendar months to a date, clamping the day to the last valid day of
+// the target month (e.g. Jan 31 + 1 month => Feb 28, not Mar 3).
+function addMonthsClamped(base: Date, months: number): Date {
+  const day = base.getDate()
+  const target = new Date(base.getFullYear(), base.getMonth() + months, 1)
+  const lastDayOfTargetMonth = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
+  target.setDate(Math.min(day, lastDayOfTargetMonth))
+  return target
+}
+
+// Add one recurrence interval to a YYYY-MM-DD date string. Month/quarter/year
+// intervals stay on the same day-of-month and clamp to month-end so dates
+// never silently skip a month.
 export function addInterval(dateStr: string, frequency: string, customDays?: number | null): string | null {
-  const d = new Date(dateStr + 'T00:00:00')
-  if (isNaN(d.getTime())) return null
+  const base = new Date(dateStr + 'T00:00:00')
+  if (isNaN(base.getTime())) return null
+  let d: Date
   switch (frequency) {
-    case 'weekly': d.setDate(d.getDate() + 7); break
-    case 'biweekly': d.setDate(d.getDate() + 14); break
-    case 'monthly': d.setMonth(d.getMonth() + 1); break
-    case 'quarterly': d.setMonth(d.getMonth() + 3); break
+    case 'weekly': d = new Date(base); d.setDate(d.getDate() + 7); break
+    case 'biweekly': d = new Date(base); d.setDate(d.getDate() + 14); break
+    case 'monthly': d = addMonthsClamped(base, 1); break
+    case 'quarterly': d = addMonthsClamped(base, 3); break
     case 'biannual':
-    case 'semiannual': d.setMonth(d.getMonth() + 6); break
+    case 'semiannual': d = addMonthsClamped(base, 6); break
     case 'annual':
-    case 'yearly': d.setFullYear(d.getFullYear() + 1); break
+    case 'yearly': d = addMonthsClamped(base, 12); break
     case 'custom': {
       if (!customDays || customDays <= 0) return null
+      d = new Date(base)
       d.setDate(d.getDate() + customDays)
       break
     }
     default: return null
   }
-  return d.toISOString().split('T')[0]
+  // Format as local YYYY-MM-DD (avoids UTC off-by-one from toISOString).
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 // Resolve the effective frequency + custom days for a membership, honoring
