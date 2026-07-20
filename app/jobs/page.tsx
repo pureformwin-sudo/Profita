@@ -299,6 +299,84 @@ const openEditJobPanel = async (job: Job) => {
     }
   }
 
+  // Activate a job's pending recurring enrollment. Anchors the schedule on the
+  // service date, reuses the customer's single membership row, and handles the
+  // "already on a different plan" conflict with a confirm. Non-fatal on error.
+  const activatePendingEnrollment = async (
+    customerId: string,
+    ppe: PendingPlanEnrollment,
+    serviceDate: string,
+  ): Promise<boolean> => {
+    try {
+      const anchor = (ppe.anchorDate || (serviceDate ? serviceDate.split('T')[0] : null)) || new Date().toISOString().split('T')[0]
+      let res = await enrollCustomerInPlanFromJob({
+        customerId,
+        planId: ppe.planId,
+        anchorDate: anchor,
+        priceOverride: ppe.priceOverride,
+        autoRenew: ppe.autoRenew,
+        note: ppe.note,
+        confirmChange: ppe.mode === 'change',
+      })
+
+      if (res.status === 'conflict') {
+        const planName = servicePlans.find((p) => p.id === ppe.planId)?.name || 'the selected plan'
+        const ok = confirm(
+          `This customer is already active on a different service plan. Replace it with ${planName}?`,
+        )
+        if (!ok) return false
+        res = await enrollCustomerInPlanFromJob({
+          customerId,
+          planId: ppe.planId,
+          anchorDate: anchor,
+          priceOverride: ppe.priceOverride,
+          autoRenew: ppe.autoRenew,
+          note: ppe.note,
+          confirmChange: true,
+        })
+      }
+
+      if (res.status === 'enrolled') {
+        toast.success('Customer enrolled in recurring service plan')
+        return true
+      }
+      if (res.status === 'already-enrolled') {
+        toast.info('Customer is already enrolled in this plan')
+        return true
+      }
+      if (res.status === 'error') {
+        toast.error(res.error || 'Could not enroll customer')
+      }
+      return false
+    } catch (err) {
+      console.error('[v0] activatePendingEnrollment failed:', err)
+      toast.error('Could not enroll customer in plan')
+      return false
+    }
+  }
+
+  // Immediate enroll from the Job Details drawer (used for already-completed
+  // jobs). Reuses activatePendingEnrollment for consistent conflict handling.
+  const handleDrawerEnroll = async (
+    job: Job,
+    opts: { planId: string; priceOverride: number | null; autoRenew: boolean; anchorDate: string },
+  ): Promise<boolean> => {
+    const ok = await activatePendingEnrollment(
+      job.customerId,
+      {
+        planId: opts.planId,
+        priceOverride: opts.priceOverride,
+        autoRenew: opts.autoRenew,
+        note: null,
+        anchorDate: opts.anchorDate,
+        mode: 'enroll',
+      },
+      job.date,
+    )
+    if (ok) await loadData()
+    return ok
+  }
+
   const handleSaveJob = async () => {
     if (!jobForm.customerId || !jobForm.price) {
       toast.error('Please select a customer and enter a price')
@@ -477,19 +555,31 @@ const handleDeleteJob = async (id: string) => {
         setNotificationJob(job)
       }
 
-      // Advance the customer's recurring service schedule if they're on an
-      // active plan. Idempotent + never creates jobs, so it's safe to call here.
+      // Recurring service plan handling on completion.
       if (job.customerId) {
-        try {
-          // Anchor on the job's actual service date (falls back to today).
-          const completionDate = (job.date ? job.date.split('T')[0] : null) || new Date().toISOString().split('T')[0]
-          const res = await advanceServiceScheduleForCustomer(job.customerId, completionDate)
-          if (res.advanced && res.nextServiceDate) {
-            const nice = new Date(res.nextServiceDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-            toast.success(`Next service scheduled for ${nice}`)
+        const completionDate = (job.date ? job.date.split('T')[0] : null) || new Date().toISOString().split('T')[0]
+        let didActivate = false
+        // 1) Activate any pending enrollment captured on this job (sets up the
+        //    membership + first next_service_date). Then clear the flag so it
+        //    can't re-fire on a future status change.
+        if (job.pendingPlanEnrollment) {
+          didActivate = await activatePendingEnrollment(job.customerId, job.pendingPlanEnrollment, completionDate)
+          if (didActivate) {
+            try { await updateJob(jobId, { pendingPlanEnrollment: null }) } catch {}
           }
-        } catch (err) {
-          console.error('[v0] advance service schedule failed:', err)
+        }
+        // 2) If we didn't just enroll, advance an existing schedule. Idempotent,
+        //    never creates jobs. (Skipped after enroll to avoid double-advance.)
+        if (!didActivate) {
+          try {
+            const res = await advanceServiceScheduleForCustomer(job.customerId, completionDate)
+            if (res.advanced && res.nextServiceDate) {
+              const nice = new Date(res.nextServiceDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              toast.success(`Next service scheduled for ${nice}`)
+            }
+          } catch (err) {
+            console.error('[v0] advance service schedule failed:', err)
+          }
         }
       }
 
@@ -539,14 +629,22 @@ const handleDeleteJob = async (id: string) => {
     // Update job status
     await updateJob(selectedJobForPaid.id, { status: 'Paid', paidAmount: selectedJobForPaid.price })
 
-    // Advance recurring service schedule (idempotent — safe if the job was
-    // already marked Completed earlier, which would have advanced it).
+    // Recurring service plan handling on payment (mirrors completion flow).
     if (selectedJobForPaid.customerId) {
-      try {
-        const completionDate = (selectedJobForPaid.date ? selectedJobForPaid.date.split('T')[0] : null) || new Date().toISOString().split('T')[0]
-        await advanceServiceScheduleForCustomer(selectedJobForPaid.customerId, completionDate)
-      } catch (err) {
-        console.error('[v0] advance service schedule (paid) failed:', err)
+      const completionDate = (selectedJobForPaid.date ? selectedJobForPaid.date.split('T')[0] : null) || new Date().toISOString().split('T')[0]
+      let didActivate = false
+      if (selectedJobForPaid.pendingPlanEnrollment) {
+        didActivate = await activatePendingEnrollment(selectedJobForPaid.customerId, selectedJobForPaid.pendingPlanEnrollment, completionDate)
+        if (didActivate) {
+          try { await updateJob(selectedJobForPaid.id, { pendingPlanEnrollment: null }) } catch {}
+        }
+      }
+      if (!didActivate) {
+        try {
+          await advanceServiceScheduleForCustomer(selectedJobForPaid.customerId, completionDate)
+        } catch (err) {
+          console.error('[v0] advance service schedule (paid) failed:', err)
+        }
       }
     }
     
@@ -1079,6 +1177,129 @@ const handleDeleteJob = async (id: string) => {
               />
             </div>
 
+            {/* Recurring Service Plan enrollment */}
+            {(() => {
+              const activeMembership = customerPlans.find(
+                (cp) => cp.customer_id === jobForm.customerId && cp.status === 'active' && cp.plan_id,
+              )
+              const activeMembershipPlan = activeMembership
+                ? servicePlans.find((p) => p.id === activeMembership.plan_id)
+                : null
+              const selectedPlan = servicePlans.find((p) => p.id === enroll.planId) || null
+              const alreadyOnSamePlan = !!activeMembership && activeMembership.plan_id === enroll.planId
+              const conflict = !!activeMembership && enroll.planId !== '' && activeMembership.plan_id !== enroll.planId
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <Repeat className="h-4 w-4" />
+                      Recurring Service Plan
+                    </Label>
+                    <Switch
+                      checked={enroll.enabled}
+                      onCheckedChange={(v) => setEnroll((prev) => ({ ...prev, enabled: v }))}
+                      aria-label="Enroll customer in a recurring service plan"
+                    />
+                  </div>
+
+                  {!enroll.enabled ? (
+                    <p className="text-xs text-muted-foreground">
+                      {activeMembershipPlan
+                        ? `Customer is on the ${activeMembershipPlan.name} plan.`
+                        : 'Turn on to enroll this customer in a recurring service plan. Enrollment activates when the job is completed.'}
+                    </p>
+                  ) : servicePlans.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No active service plans yet. Create one on the Plans page first.
+                    </p>
+                  ) : (
+                    <div className="space-y-4 rounded-lg border border-border p-4">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Plan</Label>
+                        <Select
+                          value={enroll.planId}
+                          onValueChange={(v) => {
+                            const plan = servicePlans.find((p) => p.id === v)
+                            setEnroll((prev) => ({
+                              ...prev,
+                              planId: v,
+                              // Prefill note with the plan name for context.
+                              note: prev.note || (plan ? `Enrolled via job on ${jobForm.date}` : prev.note),
+                            }))
+                          }}
+                        >
+                          <SelectTrigger className="text-sm">
+                            <SelectValue placeholder="Select a service plan" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {servicePlans.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name} — ${p.price}/{p.frequency}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {alreadyOnSamePlan && (
+                        <p className="text-xs text-emerald-500">
+                          Customer is already active on this plan. Completing the job will refresh their schedule.
+                        </p>
+                      )}
+                      {conflict && (
+                        <p className="text-xs text-amber-500">
+                          Customer is currently on the {activeMembershipPlan?.name || 'another'} plan. Enrolling will
+                          replace it (you&apos;ll be asked to confirm on completion).
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">
+                            Price {selectedPlan ? `(plan: $${selectedPlan.price})` : ''}
+                          </Label>
+                          <Input
+                            type="number"
+                            inputMode="decimal"
+                            placeholder={selectedPlan ? String(selectedPlan.price) : 'Plan price'}
+                            value={enroll.priceOverride}
+                            onChange={(e) => setEnroll((prev) => ({ ...prev, priceOverride: e.target.value }))}
+                            className="text-sm"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">First service date</Label>
+                          <Input
+                            type="date"
+                            value={enroll.startDate}
+                            onChange={(e) => setEnroll((prev) => ({ ...prev, startDate: e.target.value }))}
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <Label className="text-sm">Auto-renew</Label>
+                          <p className="text-xs text-muted-foreground">Keep billing/service recurring automatically.</p>
+                        </div>
+                        <Switch
+                          checked={enroll.autoRenew}
+                          onCheckedChange={(v) => setEnroll((prev) => ({ ...prev, autoRenew: v }))}
+                          aria-label="Auto-renew this plan"
+                        />
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        Enrollment activates when this job is marked Completed or Paid. The next service date is set
+                        from the first service date above.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
           </div>
 
           {/* Fixed Footer */}
@@ -1476,11 +1697,14 @@ onClick={() => openJobDetail(job)}
           invoice={selectedJob?.invoiceId ? invoices.find(i => i.id === selectedJob.invoiceId) || null : null}
           employees={employees}
           incomes={incomes}
+          customerPlans={customerPlans}
+          servicePlans={servicePlans}
           onStatusChange={handleJobStatusChange}
           onMarkPaid={handleJobPayment}
           onCreateInvoice={handleCreateJobInvoice}
           onEdit={(job) => { setShowJobDetail(false); openEditJobPanel(job) }}
           onRefresh={loadData}
+          onEnrollInPlan={handleDrawerEnroll}
         />
         </div>
       </AppShell>
