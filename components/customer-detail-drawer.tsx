@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CustomerPhotoHistory } from '@/components/job-photos/customer-photo-history'
 import { 
   User, Phone, Mail, MapPin, Calendar, DollarSign, Briefcase, 
   FileText, Receipt, CreditCard, Plus, Clock, CheckCircle, XCircle,
@@ -156,11 +157,12 @@ export function CustomerDetailDrawer({
         <div className="flex-1 overflow-y-auto overscroll-contain">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <div className="px-4 sm:px-6 pt-4 sticky top-0 bg-background z-10">
-              <TabsList className="w-full grid grid-cols-4 h-9">
+              <TabsList className="w-full grid grid-cols-5 h-9">
                 <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
                 <TabsTrigger value="jobs" className="text-xs">Jobs</TabsTrigger>
                 <TabsTrigger value="invoices" className="text-xs">Invoices</TabsTrigger>
                 <TabsTrigger value="estimates" className="text-xs">Estimates</TabsTrigger>
+                <TabsTrigger value="photos" className="text-xs">Photos</TabsTrigger>
               </TabsList>
             </div>
 
@@ -437,6 +439,10 @@ export function CustomerDetailDrawer({
                       ))}
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="photos" className="mt-0">
+                <CustomerPhotoHistory customerId={customer.id} />
               </TabsContent>
             </div>
           </Tabs>

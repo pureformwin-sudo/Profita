@@ -61,8 +61,8 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getCustomers } from '@/lib/storage'
-import type { Customer } from '@/lib/types'
+import { getCustomers, getJobs } from '@/lib/storage'
+import type { Customer, Job } from '@/lib/types'
 import {
   getServicePlans,
   createServicePlan,
@@ -78,6 +78,8 @@ import {
   type CustomerPlan,
   type PlanAutomations,
 } from '@/lib/plans-storage'
+import { ServiceScheduleSection } from '@/components/plans/service-schedule'
+import { PlanMembersDialog } from '@/components/plans/plan-members-dialog'
 
 const FREQUENCIES = [
   { value: 'monthly', label: 'Monthly' },
@@ -100,6 +102,7 @@ export default function PlansPage() {
   const [plans, setPlans] = useState<ServicePlan[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [customerPlans, setCustomerPlans] = useState<CustomerPlan[]>([])
+  const [jobs, setJobs] = useState<Job[]>([])
   const [automations, setAutomations] = useState<PlanAutomations | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -109,6 +112,7 @@ export default function PlansPage() {
   const [editingPlan, setEditingPlan] = useState<ServicePlan | null>(null)
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [assigningCustomer, setAssigningCustomer] = useState<Customer | null>(null)
+  const [planDetail, setPlanDetail] = useState<ServicePlan | null>(null)
   
   // Form state
   const [planForm, setPlanForm] = useState({
@@ -134,11 +138,12 @@ export default function PlansPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      const [plansResult, customersData, customerPlansData, automationsData] = await Promise.all([
+      const [plansResult, customersData, customerPlansData, automationsData, jobsData] = await Promise.all([
         getServicePlans(),
         getCustomers(),
         getCustomerPlans(),
         getAutomations(),
+        getJobs(),
       ])
       // Detect missing tables via the explicit flag returned by getServicePlans
       if (plansResult.tablesMissing) {
@@ -147,6 +152,7 @@ export default function PlansPage() {
       setPlans(plansResult.data)
       setCustomers(customersData)
       setCustomerPlans(customerPlansData)
+      setJobs(jobsData)
       setAutomations(automationsData || {
         id: '',
         user_id: '',
@@ -161,6 +167,14 @@ export default function PlansPage() {
     }
     loadData()
   }, [])
+
+  // Re-fetch just the customer plans (used after a schedule edit so the
+  // schedule section, plan detail, and memberships table all stay in sync).
+  const refreshCustomerPlans = async () => {
+    const [fresh, freshJobs] = await Promise.all([getCustomerPlans(), getJobs()])
+    setCustomerPlans(fresh)
+    setJobs(freshJobs)
+  }
 
   // Computed stats
   const stats = useMemo(() => {
@@ -616,6 +630,17 @@ CREATE POLICY plan_automations_all_own ON plan_automations FOR ALL TO authentica
         </Card>
       </div>
 
+      {/* Service Schedule */}
+      {!tablesMissing && (
+        <ServiceScheduleSection
+          plans={plans}
+          customerPlans={customerPlans}
+          customers={customers}
+          jobs={jobs}
+          onRefresh={refreshCustomerPlans}
+        />
+      )}
+
       {/* Plans Grid + Insights */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Plans List */}
@@ -665,6 +690,10 @@ CREATE POLICY plan_automations_all_own ON plan_automations FOR ALL TO authentica
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setPlanDetail(plan)}>
+                              <Users className="h-4 w-4 mr-2" />
+                              View members &amp; schedule
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openEditPlan(plan)}>
                               <Pencil className="h-4 w-4 mr-2" />
                               Edit
@@ -1215,6 +1244,16 @@ CREATE POLICY plan_automations_all_own ON plan_automations FOR ALL TO authentica
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Plan members & schedule detail */}
+      <PlanMembersDialog
+        plan={planDetail}
+        open={!!planDetail}
+        onOpenChange={(open) => { if (!open) setPlanDetail(null) }}
+        customerPlans={customerPlans}
+        customers={customers}
+        onRefresh={refreshCustomerPlans}
+      />
       </div>
     </AppShell>
   )

@@ -4,6 +4,24 @@ export type PaymentStatus = 'Paid' | 'Pending'
 export type RecurrenceFrequency = 'none' | 'weekly' | 'monthly'
 export type JobStatus = 'Scheduled' | 'On the way' | 'In progress' | 'Completed' | 'Invoiced' | 'Paid' | 'Closed'
 export type ExpenseCategory = 'Fuel' | 'Equipment' | 'Supplies' | 'Marketing' | 'Software' | 'Other'
+// Built-in categories offered by default. Users can add their own (stored in
+// settings.expense_categories); category is persisted as free text.
+export const DEFAULT_EXPENSE_CATEGORIES: string[] = ['Fuel', 'Equipment', 'Supplies', 'Marketing', 'Software', 'Other']
+// How a transaction affects expense totals. 'transfer' (e.g. paying a credit
+// card bill, moving money between accounts) is recorded but NEVER counted as a
+// business expense, so money isn't double-counted.
+export type TransactionType = 'business_expense' | 'transfer'
+// Tax treatment is always chosen manually — nothing is auto-marked deductible.
+export type TaxTreatment = 'unreviewed' | 'likely_deductible' | 'not_deductible' | 'ask_accountant'
+// A receipt / document attached to an expense (stored in Vercel Blob).
+export interface ExpenseAttachment {
+  url: string
+  pathname: string
+  name: string
+  size: number
+  contentType: string
+  uploadedAt: string
+}
 export type PaymentSource = 'Venmo' | 'Cash App' | 'Invoice' | 'Zelle' | 'Check' | 'Other'
 export type PendingStatus = 'Pending' | 'Processing' | 'On Hold'
 export type ExpenseStatus = 'Unpaid' | 'Scheduled'
@@ -68,12 +86,32 @@ export interface Expense {
   id: string
   amount: number
   date: string
-  category: ExpenseCategory
+  category: string // free text; defaults + custom categories from settings
   description: string
   paymentMethod: PaymentMethod
   recurrence: RecurrenceFrequency
   notes?: string
   createdAt: string
+  // Accounting enrichment (script 34). All optional / safe defaults.
+  vendor?: string | null
+  businessPurpose?: string | null
+  transactionType?: TransactionType   // defaults to 'business_expense'
+  taxTreatment?: TaxTreatment          // defaults to 'unreviewed'
+  taxNote?: string | null
+  jobId?: string | null
+  customerId?: string | null
+  attachments?: ExpenseAttachment[]
+}
+
+// Intent to enroll a customer in a recurring Service Plan, captured on a job
+// and activated ONLY when the job is Completed/Paid.
+export interface PendingPlanEnrollment {
+  planId: string
+  priceOverride: number | null   // null = use master plan price
+  autoRenew: boolean | null      // null = inherit plan setting
+  note: string | null            // optional internal note stored on the membership
+  anchorDate: string | null      // YYYY-MM-DD; defaults to the job's service date
+  mode: 'enroll' | 'change'      // 'change' = user confirmed replacing a different active plan
 }
 
 export interface Job {
@@ -81,6 +119,8 @@ export interface Job {
   customerId: string
   estimateId?: string  // Linked estimate (if created from estimate)
   invoiceId?: string   // Linked invoice (if invoice was created for this job)
+  customerPlanId?: string | null  // Linked service-plan membership (recurring occurrence)
+  pendingPlanEnrollment?: PendingPlanEnrollment | null // enroll on completion
   date: string
   startTime?: string   // HH:mm format
   endTime?: string     // HH:mm format
@@ -124,7 +164,7 @@ export interface BusinessProfile {
 
 export interface Settings {
   profitAllocation: ProfitAllocation
-  expenseCategories: ExpenseCategory[]
+  expenseCategories: string[]
   darkMode: boolean
   profile?: BusinessProfile
 }

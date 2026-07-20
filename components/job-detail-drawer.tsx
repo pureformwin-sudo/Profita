@@ -10,7 +10,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Switch } from '@/components/ui/switch'
 import { Job, JobStatus, Customer, Estimate, Invoice, Employee, PaymentMethod, Income } from '@/lib/types'
+import {
+  type CustomerPlan,
+  type ServicePlan,
+  effectivePlanPrice,
+  effectiveFrequency,
+} from '@/lib/plans-storage'
 import { formatDate } from '@/lib/utils-finance'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -18,7 +25,7 @@ import {
   Phone, Mail, MapPin, Navigation, MessageSquare, Calendar, Clock, 
   DollarSign, FileText, Receipt, User, ChevronDown, ChevronRight,
   Play, CheckCircle, Truck, MoreVertical, Pencil, Camera,
-  Upload, Paperclip, Tag, ArrowLeft, Copy, Archive, Eye
+  Upload, Paperclip, Tag, ArrowLeft, Copy, Archive, Eye, Repeat
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -27,6 +34,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { JobPhotosTab } from '@/components/job-photos/job-photos-tab'
 
 const paymentMethods: PaymentMethod[] = ['Cash', 'Card', 'Check', 'Zelle', 'Venmo', 'Other']
 
@@ -39,11 +47,19 @@ interface JobDetailDrawerProps {
   invoice: Invoice | null
   employees: Employee[]
   incomes: Income[]
+  customerPlans: CustomerPlan[]
+  servicePlans: ServicePlan[]
   onStatusChange: (jobId: string, status: JobStatus) => Promise<void>
   onMarkPaid: (jobId: string, paymentMethod: PaymentMethod, amount: number, notes?: string) => Promise<void>
   onCreateInvoice: (jobId: string) => Promise<void>
   onEdit: (job: Job) => void
   onRefresh: () => void
+  // Quick-enroll a customer into a plan from the drawer. Resolves when done so
+  // the drawer can refresh. Returns true on success.
+  onEnrollInPlan: (
+    job: Job,
+    opts: { planId: string; priceOverride: number | null; autoRenew: boolean; anchorDate: string },
+  ) => Promise<boolean>
 }
 
 const statusConfig: Record<JobStatus, { label: string; color: string; bg: string }> = {
@@ -65,11 +81,14 @@ export function JobDetailDrawer({
   invoice,
   employees,
   incomes,
+  customerPlans,
+  servicePlans,
   onStatusChange,
   onMarkPaid,
   onCreateInvoice,
   onEdit,
   onRefresh,
+  onEnrollInPlan,
 }: JobDetailDrawerProps) {
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash')
@@ -77,6 +96,12 @@ export function JobDetailDrawer({
   const [paymentNotes, setPaymentNotes] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [expandedSections, setExpandedSections] = useState<string[]>(['customer', 'schedule'])
+  // Quick-enroll dialog state
+  const [showEnrollModal, setShowEnrollModal] = useState(false)
+  const [enrollPlanId, setEnrollPlanId] = useState('')
+  const [enrollPrice, setEnrollPrice] = useState('')
+  const [enrollAutoRenew, setEnrollAutoRenew] = useState(true)
+  const [enrollingNow, setEnrollingNow] = useState(false)
 
   if (!job || !customer) return null
 
@@ -84,6 +109,40 @@ export function JobDetailDrawer({
   const remainingBalance = job.price - paidAmount
   const isFullyPaid = remainingBalance <= 0
   const jobPayments = incomes.filter(i => i.jobId === job.id)
+
+  // Recurring service plan context for this customer.
+  const membership = customerPlans.find(
+    (cp) => cp.customer_id === job.customerId && cp.status === 'active' && cp.plan_id,
+  ) || null
+  const membershipPlan = membership ? servicePlans.find((p) => p.id === membership.plan_id) || null : null
+  const pendingEnrollPlan = job.pendingPlanEnrollment
+    ? servicePlans.find((p) => p.id === job.pendingPlanEnrollment!.planId) || null
+    : null
+  const isDoneJob = job.status === 'Completed' || job.status === 'Paid'
+
+  const handleQuickEnroll = async () => {
+    if (!enrollPlanId) {
+      toast.error('Select a plan')
+      return
+    }
+    setEnrollingNow(true)
+    try {
+      const ok = await onEnrollInPlan(job, {
+        planId: enrollPlanId,
+        priceOverride: enrollPrice.trim() !== '' ? parseFloat(enrollPrice) : null,
+        autoRenew: enrollAutoRenew,
+        anchorDate: job.date ? job.date.split('T')[0] : new Date().toISOString().split('T')[0],
+      })
+      if (ok) {
+        setShowEnrollModal(false)
+        setEnrollPlanId('')
+        setEnrollPrice('')
+        onRefresh()
+      }
+    } finally {
+      setEnrollingNow(false)
+    }
+  }
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => 
@@ -411,6 +470,100 @@ export function JobDetailDrawer({
               </CollapsibleContent>
             </Collapsible>
 
+            {/* Service Plan Section */}
+            <Collapsible open={expandedSections.includes('plan')} onOpenChange={() => toggleSection('plan')}>
+              <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Repeat className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">Service Plan</span>
+                  {membershipPlan && (
+                    <Badge variant="secondary" className="ml-1">{membershipPlan.name}</Badge>
+                  )}
+                  {!membership && pendingEnrollPlan && (
+                    <Badge variant="outline" className="ml-1 border-amber-500/30 bg-amber-500/10 text-amber-500">
+                      Pending
+                    </Badge>
+                  )}
+                </div>
+                {expandedSections.includes('plan') ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="px-4 py-3 space-y-2 bg-muted/20 border-b border-border">
+                  {membership && membershipPlan ? (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Plan</span>
+                        <span className="font-medium">{membershipPlan.name}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Frequency</span>
+                        <span className="font-medium capitalize">
+                          {effectiveFrequency(membership, membershipPlan).frequency || membershipPlan.frequency}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Price</span>
+                        <span className="font-medium">
+                          ${effectivePlanPrice(membership, membershipPlan) ?? membershipPlan.price}
+                          {membership.price_override != null && (
+                            <span className="ml-1 text-xs text-muted-foreground">(custom)</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Last service</span>
+                        <span className="font-medium">
+                          {membership.last_service_date ? formatDate(membership.last_service_date) : '—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Next service</span>
+                        <span className="font-medium">
+                          {membership.next_service_date ? formatDate(membership.next_service_date) : 'Needs setup'}
+                        </span>
+                      </div>
+                    </>
+                  ) : pendingEnrollPlan ? (
+                    <div className="space-y-2">
+                      <p className="text-sm">
+                        Will enroll in <span className="font-medium">{pendingEnrollPlan.name}</span> when this job is
+                        completed.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Edit the job to change or remove this enrollment.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground">
+                        This customer isn&apos;t on a recurring service plan.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          setEnrollPlanId('')
+                          setEnrollPrice('')
+                          setEnrollAutoRenew(true)
+                          setShowEnrollModal(true)
+                        }}
+                        disabled={servicePlans.length === 0}
+                      >
+                        <Repeat className="h-4 w-4 mr-2" />
+                        {servicePlans.length === 0 ? 'No plans available' : 'Add Customer to Service Plan'}
+                      </Button>
+                      {!isDoneJob && servicePlans.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Tip: enrolling here activates immediately. To enroll on completion, use the job form instead.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
             {/* Linked Records Section */}
             <Collapsible open={expandedSections.includes('linked')} onOpenChange={() => toggleSection('linked')}>
               <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors border-b border-border">
@@ -517,6 +670,28 @@ export function JobDetailDrawer({
               </CollapsibleContent>
             </Collapsible>
 
+            {/* Photos Section */}
+            <Collapsible open={expandedSections.includes('photos')} onOpenChange={() => toggleSection('photos')}>
+              <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Camera className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">Photos</span>
+                </div>
+                {expandedSections.includes('photos') ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="px-4 py-4 bg-muted/20 border-b border-border">
+                  {customer ? (
+                    <JobPhotosTab jobId={job.id} customerId={customer.id} canEdit />
+                  ) : (
+                    <p className="text-xs text-muted-foreground text-center">
+                      Link a customer to this job to add photos.
+                    </p>
+                  )}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
             {/* Attachments Section */}
             <Collapsible open={expandedSections.includes('attachments')} onOpenChange={() => toggleSection('attachments')}>
               <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors border-b border-border">
@@ -598,6 +773,68 @@ export function JobDetailDrawer({
             <Button variant="outline" onClick={() => setShowPaymentModal(false)}>Cancel</Button>
             <Button onClick={handlePayment} disabled={isProcessing}>
               {isProcessing ? 'Processing...' : 'Confirm Payment'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick-enroll in a service plan */}
+      <Dialog open={showEnrollModal} onOpenChange={setShowEnrollModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add {customer.name} to a Service Plan</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm">Plan</Label>
+              <Select
+                value={enrollPlanId}
+                onValueChange={(v) => {
+                  setEnrollPlanId(v)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a service plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  {servicePlans.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} — ${p.price}/{p.frequency}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm">
+                Price {enrollPlanId && `(plan: $${servicePlans.find((p) => p.id === enrollPlanId)?.price ?? ''})`}
+              </Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                placeholder={
+                  enrollPlanId ? String(servicePlans.find((p) => p.id === enrollPlanId)?.price ?? '') : 'Plan price'
+                }
+                value={enrollPrice}
+                onChange={(e) => setEnrollPrice(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-sm">Auto-renew</Label>
+                <p className="text-xs text-muted-foreground">Keep service recurring automatically.</p>
+              </div>
+              <Switch checked={enrollAutoRenew} onCheckedChange={setEnrollAutoRenew} aria-label="Auto-renew" />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The schedule anchors on this job&apos;s service date ({formatDate(job.date)}). Next service is calculated
+              from the plan frequency.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEnrollModal(false)}>Cancel</Button>
+            <Button onClick={handleQuickEnroll} disabled={enrollingNow || !enrollPlanId}>
+              {enrollingNow ? 'Enrolling...' : 'Enroll Customer'}
             </Button>
           </DialogFooter>
         </DialogContent>

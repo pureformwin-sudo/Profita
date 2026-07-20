@@ -7,6 +7,10 @@ export async function updateSession(request: NextRequest) {
   // Public routes - no auth required
   const isPublicRoute = ['/login', '/signup', '/rep/login', '/auth/callback', '/pending-approval'].includes(pathname) 
     || pathname.startsWith('/worker')
+    || pathname.startsWith('/invite')
+    || pathname.startsWith('/pay')
+    || pathname.startsWith('/reports')
+    || pathname.startsWith('/api/job-photos/public-file')
 
   let supabaseResponse = NextResponse.next({ request })
 

@@ -1,5 +1,6 @@
 import { createClient, getCachedUser } from '@/lib/supabase/client'
 import type { Income, Expense, Settings, ProfitAllocation, PendingIncome, UpcomingExpense, Job, Customer, BusinessProfile, Estimate, Invoice, EstimateItem, InvoiceItem, EstimateStatus, InvoiceStatus, Employee, JobWorker, PayrollSummary } from './types'
+import { DEFAULT_EXPENSE_CATEGORIES } from './types'
 import { triggerCommissionForInvoicePaid, triggerCommissionForJobCreated } from './commission-triggers'
 
 // Get Supabase client (singleton, see lib/supabase/client.ts)
@@ -297,6 +298,30 @@ export function formatMonthDisplay(monthKey: string): string {
 }
 
 // Expense operations
+// Map a raw expenses row to the Expense type, including the accounting
+// enrichment columns (script 34). Old rows lacking these get safe defaults.
+function mapExpenseRow(item: any): Expense {
+  return {
+    id: item.id,
+    amount: item.amount,
+    category: item.category,
+    description: item.description,
+    date: item.date,
+    paymentMethod: item.payment_method,
+    recurrence: item.recurrence || 'none',
+    notes: item.notes,
+    createdAt: item.created_at,
+    vendor: item.vendor ?? null,
+    businessPurpose: item.business_purpose ?? null,
+    transactionType: item.transaction_type || 'business_expense',
+    taxTreatment: item.tax_treatment || 'unreviewed',
+    taxNote: item.tax_note ?? null,
+    jobId: item.job_id ?? null,
+    customerId: item.customer_id ?? null,
+    attachments: Array.isArray(item.attachments) ? item.attachments : [],
+  }
+}
+
 export async function getExpenses(): Promise<Expense[]> {
   const supabase = getSupabase()
   const { data, error } = await supabase
@@ -309,17 +334,7 @@ export async function getExpenses(): Promise<Expense[]> {
     return []
   }
   
-  return data.map(item => ({
-    id: item.id,
-    amount: item.amount,
-    category: item.category,
-    description: item.description,
-    date: item.date,
-    paymentMethod: item.payment_method,
-    recurrence: item.recurrence || 'none',
-    notes: item.notes,
-    createdAt: item.created_at,
-  }))
+  return data.map(mapExpenseRow)
 }
 
 export async function addExpense(expense: Omit<Expense, 'id' | 'createdAt'>): Promise<Expense | null> {
@@ -342,6 +357,14 @@ export async function addExpense(expense: Omit<Expense, 'id' | 'createdAt'>): Pr
       payment_method: expense.paymentMethod,
       recurrence: expense.recurrence || 'none',
       notes: expense.notes,
+      vendor: expense.vendor ?? null,
+      business_purpose: expense.businessPurpose ?? null,
+      transaction_type: expense.transactionType || 'business_expense',
+      tax_treatment: expense.taxTreatment || 'unreviewed',
+      tax_note: expense.taxNote ?? null,
+      job_id: expense.jobId ?? null,
+      customer_id: expense.customerId ?? null,
+      attachments: expense.attachments ?? [],
     })
     .select()
     .single()
@@ -351,17 +374,40 @@ export async function addExpense(expense: Omit<Expense, 'id' | 'createdAt'>): Pr
     return null
   }
   
-  return {
-    id: data.id,
-    amount: data.amount,
-    category: data.category,
-    description: data.description,
-    date: data.date,
-    paymentMethod: data.payment_method,
-    recurrence: data.recurrence || 'none',
-    notes: data.notes,
-    createdAt: data.created_at,
+  return mapExpenseRow(data)
+}
+
+export async function updateExpense(id: string, updates: Partial<Omit<Expense, 'id' | 'createdAt'>>): Promise<Expense | null> {
+  const supabase = getSupabase()
+  const updateData: Record<string, unknown> = {}
+  if (updates.amount !== undefined) updateData.amount = updates.amount
+  if (updates.category !== undefined) updateData.category = updates.category
+  if (updates.description !== undefined) updateData.description = updates.description
+  if (updates.date !== undefined) updateData.date = updates.date
+  if (updates.paymentMethod !== undefined) updateData.payment_method = updates.paymentMethod
+  if (updates.recurrence !== undefined) updateData.recurrence = updates.recurrence || 'none'
+  if (updates.notes !== undefined) updateData.notes = updates.notes
+  if (updates.vendor !== undefined) updateData.vendor = updates.vendor
+  if (updates.businessPurpose !== undefined) updateData.business_purpose = updates.businessPurpose
+  if (updates.transactionType !== undefined) updateData.transaction_type = updates.transactionType
+  if (updates.taxTreatment !== undefined) updateData.tax_treatment = updates.taxTreatment
+  if (updates.taxNote !== undefined) updateData.tax_note = updates.taxNote
+  if (updates.jobId !== undefined) updateData.job_id = updates.jobId
+  if (updates.customerId !== undefined) updateData.customer_id = updates.customerId
+  if (updates.attachments !== undefined) updateData.attachments = updates.attachments
+
+  const { data, error } = await supabase
+    .from('expenses')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Error updating expense:', error)
+    return null
   }
+  return mapExpenseRow(data)
 }
 
 export async function deleteExpense(id: string): Promise<boolean> {
@@ -675,6 +721,43 @@ export async function saveSettings(settings: Settings): Promise<boolean> {
   return true
 }
 
+// Merged list of expense categories: defaults + user-saved custom categories
+// + any category already present on existing expense rows (so free-text ones
+// entered before this feature still appear in pickers/filters). De-duplicated,
+// case-insensitive, with defaults kept first.
+export async function getExpenseCategories(): Promise<string[]> {
+  const [settings, expenses] = await Promise.all([getSettings(), getExpenses()])
+  const seen = new Set<string>()
+  const result: string[] = []
+  const add = (c?: string | null) => {
+    const v = (c || '').trim()
+    if (!v) return
+    const key = v.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    result.push(v)
+  }
+  DEFAULT_EXPENSE_CATEGORIES.forEach(add)
+  ;(settings.expenseCategories || []).forEach(add)
+  expenses.forEach((e) => add(e.category))
+  return result
+}
+
+// Persist a new custom category into settings (idempotent, case-insensitive).
+export async function addExpenseCategory(category: string): Promise<boolean> {
+  const name = (category || '').trim()
+  if (!name) return false
+  const settings = await getSettings()
+  const exists = (settings.expenseCategories || []).some(
+    (c) => c.toLowerCase() === name.toLowerCase(),
+  )
+  if (exists) return true
+  return saveSettings({
+    ...settings,
+    expenseCategories: [...(settings.expenseCategories || []), name],
+  })
+}
+
 export async function resetAllData(): Promise<boolean> {
   const supabase = getSupabase()
   
@@ -709,6 +792,8 @@ return data.map(item => ({
   customerId: item.customer_id,
   estimateId: item.estimate_id,
   invoiceId: item.invoice_id,
+  customerPlanId: item.customer_plan_id,
+  pendingPlanEnrollment: item.pending_plan_enrollment || null,
   date: item.date,
   startTime: item.start_time,
   endTime: item.end_time,
@@ -739,6 +824,8 @@ export async function addJob(job: Omit<Job, 'id' | 'createdAt'>): Promise<Job | 
   company_id: companyId,
   customer_id: job.customerId,
   estimate_id: job.estimateId || null,
+  customer_plan_id: job.customerPlanId || null,
+  pending_plan_enrollment: job.pendingPlanEnrollment ?? null,
   date: job.date,
   start_time: job.startTime || null,
   end_time: job.endTime || null,
@@ -769,6 +856,8 @@ export async function addJob(job: Omit<Job, 'id' | 'createdAt'>): Promise<Job | 
   customerId: data.customer_id,
   estimateId: data.estimate_id,
   invoiceId: data.invoice_id,
+  customerPlanId: data.customer_plan_id,
+  pendingPlanEnrollment: data.pending_plan_enrollment || null,
   date: data.date,
   startTime: data.start_time,
   endTime: data.end_time,
@@ -789,6 +878,8 @@ export async function updateJob(id: string, updates: Partial<Omit<Job, 'id' | 'c
   if (updates.customerId) updateData.customer_id = updates.customerId
   if (updates.estimateId !== undefined) updateData.estimate_id = updates.estimateId
   if (updates.invoiceId !== undefined) updateData.invoice_id = updates.invoiceId
+  if (updates.customerPlanId !== undefined) updateData.customer_plan_id = updates.customerPlanId
+  if (updates.pendingPlanEnrollment !== undefined) updateData.pending_plan_enrollment = updates.pendingPlanEnrollment
   if (updates.date) updateData.date = updates.date
   if (updates.startTime !== undefined) updateData.start_time = updates.startTime
   if (updates.endTime !== undefined) updateData.end_time = updates.endTime
@@ -816,6 +907,8 @@ return {
   customerId: data.customer_id,
   estimateId: data.estimate_id,
   invoiceId: data.invoice_id,
+  customerPlanId: data.customer_plan_id,
+  pendingPlanEnrollment: data.pending_plan_enrollment || null,
   date: data.date,
   startTime: data.start_time,
   endTime: data.end_time,
@@ -1828,7 +1921,7 @@ export async function createInvoiceFromJob(
   const taxAmount = subtotal * (taxRate / 100)
   const total = subtotal + taxAmount
 
-  // Create invoice
+  // Create invoice with 'sent' status since it's being created from a completed job
   const { data: invoice, error: invError } = await supabase
     .from('invoices')
     .insert({
@@ -1838,7 +1931,7 @@ export async function createInvoiceFromJob(
       job_id: jobId,
       estimate_id: job.estimate_id,
       invoice_number: invoiceNumber,
-      status: 'draft',
+      status: 'sent', // Changed from 'draft' - invoice is ready for payment
       issue_date: today,
       due_date: dueDate.toISOString().split('T')[0],
       items,
