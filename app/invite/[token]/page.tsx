@@ -86,7 +86,9 @@ export default function InvitePage() {
         }
         
         invite = memberData
-        companyName = (memberData.companies as { name: string })?.name || 'Unknown Company'
+        // Supabase types the joined relation as an array; normalize to one row.
+        const companiesRel = memberData.companies as unknown as { name: string } | { name: string }[] | null
+        companyName = (Array.isArray(companiesRel) ? companiesRel[0]?.name : companiesRel?.name) || 'Unknown Company'
       } else {
         // RPC worked
         const rpcInvite = Array.isArray(rpcData) ? rpcData[0] : rpcData

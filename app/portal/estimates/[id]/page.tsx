@@ -157,7 +157,7 @@ function PortalEstimateDetailContent() {
         type="estimate"
         documentNumber={estimate.estimateNumber}
         issueDate={estimate.issueDate}
-        expiryDate={estimate.expiryDate}
+        expiryDate={estimate.expiryDate ?? undefined}
         status={estimate.status as 'sent' | 'accepted' | 'declined'}
         company={{
           name: companyInfo?.name || 'Company',
