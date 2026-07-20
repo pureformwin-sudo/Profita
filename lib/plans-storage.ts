@@ -67,6 +67,7 @@ export type ScheduleStatus =
   | 'due-soon'
   | 'due'
   | 'overdue'
+  | 'scheduled'
   | 'paused'
   | 'cancelled'
   | 'needs-setup'
@@ -79,6 +80,7 @@ export const SCHEDULE_STATUS_META: Record<
   'due-soon': { label: 'Due Soon', className: 'bg-amber-500/10 text-amber-500 border-amber-500/20' },
   'due': { label: 'Due', className: 'bg-orange-500/10 text-orange-500 border-orange-500/20' },
   'overdue': { label: 'Overdue', className: 'bg-red-500/10 text-red-500 border-red-500/20' },
+  'scheduled': { label: 'Scheduled', className: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' },
   'paused': { label: 'Paused', className: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' },
   'cancelled': { label: 'Cancelled', className: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' },
   'needs-setup': { label: 'Schedule Needs Setup', className: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },
@@ -145,7 +147,7 @@ export function addInterval(dateStr: string, frequency: string, customDays?: num
 // any per-member override, otherwise falling back to the plan.
 export function effectiveFrequency(
   cp: Pick<CustomerPlan, 'frequency_override' | 'custom_days_override'>,
-  plan: Pick<ServicePlan, 'frequency' | 'custom_days'> | null | undefined,
+  plan: { frequency: string | null; custom_days?: number | null } | null | undefined,
 ): { frequency: string | null; customDays: number | null } {
   const frequency = cp.frequency_override || plan?.frequency || null
   const customDays = cp.frequency_override
@@ -274,6 +276,32 @@ export async function getCustomerPlans(): Promise<CustomerPlan[]> {
   return data || []
 }
 
+// Find the most recent RELIABLE completed service date for a customer, to use
+// as the anchor for a recurring schedule. "Completed" here means a real job
+// that actually happened: status 'Completed' or 'Paid'. Returns a local
+// YYYY-MM-DD date string, or null if the customer has no such job (in which
+// case callers must leave the schedule as "needs setup" — never guess).
+export async function getMostRecentCompletedServiceDate(
+  customerId: string,
+): Promise<string | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('jobs')
+    .select('date, status')
+    .eq('customer_id', customerId)
+    .in('status', ['Completed', 'Paid'])
+    .not('date', 'is', null)
+    .order('date', { ascending: false })
+    .limit(1)
+
+  if (error) {
+    console.error('[Plans] Failed to look up completed service date:', error.message)
+    return null
+  }
+  const date = data?.[0]?.date
+  return date ? String(date).split('T')[0] : null
+}
+
 export async function assignCustomerToPlan(
   customerId: string,
   planId: string | null,
@@ -318,7 +346,28 @@ export async function assignCustomerToPlan(
       nextBillingDate = start.toISOString().split('T')[0]
     }
   }
-  
+
+  // Anchor the recurring SERVICE schedule (separate from billing) on the
+  // customer's most recent completed job. If none exists, leave both dates
+  // null so the membership shows "Schedule Needs Setup" instead of guessing.
+  let lastServiceDate: string | null = null
+  let nextServiceDate: string | null = null
+  let serviceStartDate: string | null = null
+  if (planId) {
+    const anchor = await getMostRecentCompletedServiceDate(customerId)
+    if (anchor) {
+      const { data: plan } = await supabase
+        .from('service_plans')
+        .select('frequency, custom_days')
+        .eq('id', planId)
+        .maybeSingle()
+      const freq = plan?.frequency ?? null
+      lastServiceDate = anchor
+      serviceStartDate = anchor
+      nextServiceDate = freq ? addInterval(anchor, freq, plan?.custom_days) : null
+    }
+  }
+
   const { data, error } = await supabase
     .from('customer_plans')
     .upsert({
@@ -330,6 +379,9 @@ export async function assignCustomerToPlan(
       next_billing_date: nextBillingDate,
       autopay: options?.autopay ?? false,
       visits_used: 0,
+      last_service_date: lastServiceDate,
+      next_service_date: nextServiceDate,
+      service_start_date: serviceStartDate,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'customer_id' })
     .select()
@@ -435,6 +487,86 @@ export async function advanceServiceScheduleForCustomer(
     return { advanced: false, nextServiceDate: null, reason: updErr.message }
   }
   return { advanced: true, nextServiceDate }
+}
+
+// Initialize recurring schedules for EXISTING memberships from real completed
+// job history. Safe + idempotent:
+// - Only considers ACTIVE memberships that have a plan AND no next_service_date
+//   yet (so it never overwrites a schedule that's already been set).
+// - Anchors on the customer's most recent 'Completed'/'Paid' job date.
+// - If a membership has no reliable completed job, it's LEFT as-is
+//   ("Schedule Needs Setup") — never guessed.
+// - Never creates/deletes/duplicates memberships and never touches jobs.
+export async function initializeSchedulesFromHistory(): Promise<{
+  initialized: number
+  needsSetup: number
+}> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { initialized: 0, needsSetup: 0 }
+
+  const { data: memberships, error } = await supabase
+    .from('customer_plans')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .not('plan_id', 'is', null)
+    .is('next_service_date', null)
+
+  if (error || !memberships || memberships.length === 0) {
+    return { initialized: 0, needsSetup: 0 }
+  }
+
+  // Cache plan frequency lookups so we don't re-query per membership.
+  const planCache = new Map<string, { frequency: string | null; custom_days: number | null }>()
+  let initialized = 0
+  let needsSetup = 0
+
+  for (const cp of memberships) {
+    const anchor = await getMostRecentCompletedServiceDate(cp.customer_id)
+    if (!anchor) {
+      needsSetup++
+      continue
+    }
+
+    let plan = planCache.get(cp.plan_id)
+    if (!plan) {
+      const { data } = await supabase
+        .from('service_plans')
+        .select('frequency, custom_days')
+        .eq('id', cp.plan_id)
+        .maybeSingle()
+      plan = { frequency: data?.frequency ?? null, custom_days: data?.custom_days ?? null }
+      planCache.set(cp.plan_id, plan)
+    }
+
+    const { frequency, customDays } = effectiveFrequency(cp, plan)
+    const nextServiceDate = frequency ? addInterval(anchor, frequency, customDays) : null
+    if (!nextServiceDate) {
+      needsSetup++
+      continue
+    }
+
+    const { error: updErr } = await supabase
+      .from('customer_plans')
+      .update({
+        last_service_date: anchor,
+        next_service_date: nextServiceDate,
+        service_start_date: cp.service_start_date || cp.start_date || anchor,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', cp.id)
+      .is('next_service_date', null) // guard: only fill if still empty (no races/overwrites)
+
+    if (updErr) {
+      console.error('[Plans] Failed to initialize schedule from history:', updErr.message)
+      needsSetup++
+    } else {
+      initialized++
+    }
+  }
+
+  return { initialized, needsSetup }
 }
 
 export async function removeCustomerFromPlan(customerId: string): Promise<boolean> {

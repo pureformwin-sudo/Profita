@@ -1,14 +1,17 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CalendarClock, Pencil, AlertTriangle } from 'lucide-react'
+import { CalendarClock, Pencil, AlertTriangle, Sparkles, Loader2, CalendarPlus, ExternalLink } from 'lucide-react'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import type { Customer } from '@/lib/types'
+import type { Customer, Job } from '@/lib/types'
 import {
   deriveScheduleStatus,
+  initializeSchedulesFromHistory,
   SCHEDULE_STATUS_META,
   type CustomerPlan,
   type ServicePlan,
@@ -54,12 +57,14 @@ interface ScheduleRow {
   customer: Customer | undefined
   status: ScheduleStatus
   diffDays: number | null
+  scheduledJob: Job | null // open (not yet completed) job linked to this membership
 }
 
 interface ServiceScheduleSectionProps {
   plans: ServicePlan[]
   customerPlans: CustomerPlan[]
   customers: Customer[]
+  jobs: Job[]
   onRefresh: () => void
 }
 
@@ -67,10 +72,36 @@ export function ServiceScheduleSection({
   plans,
   customerPlans,
   customers,
+  jobs,
   onRefresh,
 }: ServiceScheduleSectionProps) {
+  const router = useRouter()
   const [filter, setFilter] = useState<FilterKey>('all')
   const [editing, setEditing] = useState<ScheduleRow | null>(null)
+  const [initializing, setInitializing] = useState(false)
+
+  const handleAutoFill = async () => {
+    setInitializing(true)
+    try {
+      const { initialized, needsSetup } = await initializeSchedulesFromHistory()
+      if (initialized > 0) {
+        toast.success(
+          `Scheduled ${initialized} customer${initialized === 1 ? '' : 's'} from service history` +
+            (needsSetup > 0 ? ` · ${needsSetup} still need a completed job` : ''),
+        )
+        onRefresh()
+      } else if (needsSetup > 0) {
+        toast.info(`No completed services found — ${needsSetup} still need manual setup`)
+      } else {
+        toast.info('Nothing to initialize')
+      }
+    } catch (err) {
+      console.error('[v0] auto-fill schedules failed:', err)
+      toast.error('Could not auto-fill schedules')
+    } finally {
+      setInitializing(false)
+    }
+  }
 
   const rows = useMemo<ScheduleRow[]>(() => {
     const now = new Date()
@@ -80,13 +111,32 @@ export function ServiceScheduleSection({
       .map((cp) => {
         const plan = plans.find((p) => p.id === cp.plan_id) || null
         const customer = customers.find((c) => c.id === cp.customer_id)
-        const status = deriveScheduleStatus(cp, now)
+        const baseStatus = deriveScheduleStatus(cp, now)
         let diffDays: number | null = null
         if (cp.next_service_date) {
           const due = new Date(cp.next_service_date.split('T')[0] + 'T00:00:00')
           diffDays = Math.round((due.getTime() - today.getTime()) / 86400000)
         }
-        return { cp, plan, customer, status, diffDays }
+        // An open linked job = a job tied to this membership whose service
+        // hasn't happened yet (still Scheduled / On the way / In progress).
+        // Its presence means the next service is already booked, so we surface
+        // "Scheduled" and swap the action to "View Job".
+        const OPEN_STATUSES = ['Scheduled', 'On the way', 'In progress']
+        const scheduledJob =
+          jobs.find(
+            (j) => j.customerPlanId === cp.id && OPEN_STATUSES.includes(j.status),
+          ) || null
+        // "Scheduled" overrides the date-derived status only for live states
+        // (never overrides paused/cancelled/needs-setup).
+        const status: ScheduleStatus =
+          scheduledJob &&
+          (baseStatus === 'upcoming' ||
+            baseStatus === 'due-soon' ||
+            baseStatus === 'due' ||
+            baseStatus === 'overdue')
+            ? 'scheduled'
+            : baseStatus
+        return { cp, plan, customer, status, diffDays, scheduledJob }
       })
       .sort((a, b) => {
         // Needs-setup rows sink to the bottom; everything else sorts by due date.
@@ -138,10 +188,26 @@ export function ServiceScheduleSection({
               Service Schedule
             </CardTitle>
             {counts.needsSetup > 0 && (
-              <Badge variant="outline" className="border-purple-500/30 bg-purple-500/10 text-purple-500">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                {counts.needsSetup} need setup
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="border-purple-500/30 bg-purple-500/10 text-purple-500">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  {counts.needsSetup} need setup
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  onClick={handleAutoFill}
+                  disabled={initializing}
+                >
+                  {initializing ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Auto-fill from history
+                </Button>
+              </div>
             )}
           </div>
           {/* Filters */}
@@ -215,17 +281,45 @@ export function ServiceScheduleSection({
                       Next: {formatDate(row.cp.next_service_date)}
                     </p>
                   </div>
-                  <div className="hidden md:block text-right shrink-0 w-24">
-                    <span className={cn(
-                      'text-xs font-medium',
-                      row.status === 'overdue' && 'text-red-500',
-                      row.status === 'due' && 'text-orange-500',
-                      row.status === 'due-soon' && 'text-amber-500',
-                      row.status === 'needs-setup' && 'text-purple-500',
-                    )}>
-                      {daysLabel(row.cp.next_service_date, row.status)}
-                    </span>
+                  <div className="hidden md:block text-right shrink-0 w-28">
+                    {row.status === 'scheduled' && row.scheduledJob ? (
+                      <span className="text-xs font-medium text-emerald-500">
+                        Appt {formatDate(row.scheduledJob.date)}
+                      </span>
+                    ) : (
+                      <span className={cn(
+                        'text-xs font-medium',
+                        row.status === 'overdue' && 'text-red-500',
+                        row.status === 'due' && 'text-orange-500',
+                        row.status === 'due-soon' && 'text-amber-500',
+                        row.status === 'needs-setup' && 'text-purple-500',
+                      )}>
+                        {daysLabel(row.cp.next_service_date, row.status)}
+                      </span>
+                    )}
                   </div>
+                  {/* Primary action: view an already-booked job, or schedule the due service */}
+                  {row.status === 'scheduled' && row.scheduledJob ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0"
+                      onClick={() => router.push(`/jobs?job=${row.scheduledJob!.id}`)}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                      View Job
+                    </Button>
+                  ) : (row.status === 'due' || row.status === 'due-soon' || row.status === 'overdue') ? (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="h-8 shrink-0"
+                      onClick={() => router.push(`/jobs?scheduleFor=${row.cp.id}`)}
+                    >
+                      <CalendarPlus className="h-3.5 w-3.5 mr-1.5" />
+                      Schedule
+                    </Button>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="sm"

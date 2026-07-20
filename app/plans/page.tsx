@@ -61,8 +61,8 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getCustomers } from '@/lib/storage'
-import type { Customer } from '@/lib/types'
+import { getCustomers, getJobs } from '@/lib/storage'
+import type { Customer, Job } from '@/lib/types'
 import {
   getServicePlans,
   createServicePlan,
@@ -102,6 +102,7 @@ export default function PlansPage() {
   const [plans, setPlans] = useState<ServicePlan[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [customerPlans, setCustomerPlans] = useState<CustomerPlan[]>([])
+  const [jobs, setJobs] = useState<Job[]>([])
   const [automations, setAutomations] = useState<PlanAutomations | null>(null)
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -137,11 +138,12 @@ export default function PlansPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      const [plansResult, customersData, customerPlansData, automationsData] = await Promise.all([
+      const [plansResult, customersData, customerPlansData, automationsData, jobsData] = await Promise.all([
         getServicePlans(),
         getCustomers(),
         getCustomerPlans(),
         getAutomations(),
+        getJobs(),
       ])
       // Detect missing tables via the explicit flag returned by getServicePlans
       if (plansResult.tablesMissing) {
@@ -150,6 +152,7 @@ export default function PlansPage() {
       setPlans(plansResult.data)
       setCustomers(customersData)
       setCustomerPlans(customerPlansData)
+      setJobs(jobsData)
       setAutomations(automationsData || {
         id: '',
         user_id: '',
@@ -168,8 +171,9 @@ export default function PlansPage() {
   // Re-fetch just the customer plans (used after a schedule edit so the
   // schedule section, plan detail, and memberships table all stay in sync).
   const refreshCustomerPlans = async () => {
-    const fresh = await getCustomerPlans()
+    const [fresh, freshJobs] = await Promise.all([getCustomerPlans(), getJobs()])
     setCustomerPlans(fresh)
+    setJobs(freshJobs)
   }
 
   // Computed stats
@@ -632,6 +636,7 @@ CREATE POLICY plan_automations_all_own ON plan_automations FOR ALL TO authentica
           plans={plans}
           customerPlans={customerPlans}
           customers={customers}
+          jobs={jobs}
           onRefresh={refreshCustomerPlans}
         />
       )}

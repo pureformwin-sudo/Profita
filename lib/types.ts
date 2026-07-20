@@ -81,6 +81,7 @@ export interface Job {
   customerId: string
   estimateId?: string  // Linked estimate (if created from estimate)
   invoiceId?: string   // Linked invoice (if invoice was created for this job)
+  customerPlanId?: string | null  // Linked service-plan membership (recurring occurrence)
   date: string
   startTime?: string   // HH:mm format
   endTime?: string     // HH:mm format

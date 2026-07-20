@@ -12,7 +12,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { getJobs, addJob, deleteJob, updateJob, getCustomers, addCustomer, getIncome, getEmployees, addJobWorker, getJobWorkers, deleteJobWorker, createInvoiceFromJob, getEstimates, getInvoices, markInvoicePaid, updateInvoice } from '@/lib/storage'
 import { recordPayment } from '@/lib/payments-storage'
 import { generateCompletionReport } from '@/lib/job-photos-storage'
-import { advanceServiceScheduleForCustomer } from '@/lib/plans-storage'
+import { advanceServiceScheduleForCustomer, getCustomerPlans, getServicePlans, type CustomerPlan, type ServicePlan } from '@/lib/plans-storage'
 import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, Estimate, Invoice, Income } from '@/lib/types'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
 import { notifyJobCreated, notifyJobCompleted, notifyPaymentReceived, notifyPaymentNeedsDeposit } from '@/lib/in-app-notifications'
@@ -68,6 +68,15 @@ export default function JobsPage() {
     notes: '',
   })
   
+  // Recurring service-plan link: when scheduling from the Service Schedule,
+  // the new job is tied to a specific membership (customer_plan_id) and we
+  // surface the plan name + current due date in the panel.
+  const [linkedPlan, setLinkedPlan] = useState<{
+    customerPlanId: string
+    planName: string
+    nextServiceDate: string | null
+  } | null>(null)
+
   // New customer form
   const [newCustomer, setNewCustomer] = useState({
     name: '',
@@ -89,8 +98,70 @@ export default function JobsPage() {
   const [notificationJob, setNotificationJob] = useState<Job | null>(null)
 
   useEffect(() => {
-    loadData()
+    const init = async () => {
+      const loaded = await loadData()
+      // Deep-links from the Service Schedule:
+      //   /jobs?scheduleFor=<membershipId>  → open a pre-filled scheduling panel
+      //   /jobs?job=<jobId>                 → open that job's detail drawer
+      if (typeof window === 'undefined') return
+      const params = new URLSearchParams(window.location.search)
+      const scheduleFor = params.get('scheduleFor')
+      const jobId = params.get('job')
+
+      if (scheduleFor) {
+        await openScheduleForMembership(scheduleFor)
+      } else if (jobId && loaded?.jobs) {
+        const target = loaded.jobs.find((j) => j.id === jobId)
+        if (target) {
+          setSelectedJob(target)
+          setShowJobDetail(true)
+        }
+      }
+      // Clean the query string so a refresh doesn't re-trigger the deep-link.
+      if (scheduleFor || jobId) {
+        window.history.replaceState({}, '', '/jobs')
+      }
+    }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Open the job panel pre-filled to schedule the next recurring service for a
+  // specific membership. Reuses the existing job-creation workflow and links
+  // the new job to the membership without touching the recurring due date.
+  const openScheduleForMembership = async (customerPlanId: string) => {
+    try {
+      const [cps, plansResult] = await Promise.all([getCustomerPlans(), getServicePlans()])
+      const cp = cps.find((c) => c.id === customerPlanId)
+      if (!cp) {
+        toast.error('Membership not found')
+        return
+      }
+      const plan = plansResult.data.find((p) => p.id === cp.plan_id) || null
+      setEditingJob(null)
+      resetJobForm()
+      setJobForm((prev) => ({
+        ...prev,
+        customerId: cp.customer_id,
+        // Default the appointment to the current due date (editable by the user).
+        date: cp.next_service_date
+          ? cp.next_service_date.split('T')[0]
+          : new Date().toISOString().split('T')[0],
+        price: plan?.price ? String(plan.price) : prev.price,
+        status: 'Scheduled',
+        notes: plan ? `Recurring service — ${plan.name}` : prev.notes,
+      }))
+      setLinkedPlan({
+        customerPlanId: cp.id,
+        planName: plan?.name || 'Service Plan',
+        nextServiceDate: cp.next_service_date,
+      })
+      setShowJobPanel(true)
+    } catch (err) {
+      console.error('[v0] openScheduleForMembership failed:', err)
+      toast.error('Could not open scheduling')
+    }
+  }
 
 const loadData = async () => {
   const [jobsData, customersData, employeesData, estimatesData, invoicesData, incomesData] = await Promise.all([
@@ -107,6 +178,7 @@ const loadData = async () => {
   setEstimates(estimatesData)
   setInvoices(invoicesData)
   setIncomes(incomesData)
+  return { jobs: jobsData, customers: customersData }
   }
 
   const resetJobForm = () => {
@@ -124,6 +196,7 @@ const loadData = async () => {
     setSelectedWorkers([])
     setNewCustomer({ name: '', email: '', phone: '', address: '' })
     setShowNewCustomerForm(false)
+    setLinkedPlan(null)
   }
 
   const openNewJobPanel = () => {
@@ -241,6 +314,9 @@ const openEditJobPanel = async (job: Job) => {
   expenses: jobForm.expenses ? parseFloat(jobForm.expenses) : undefined,
   status: jobForm.status,
   notes: jobForm.notes,
+  // Link to the membership when scheduling a recurring service. This does NOT
+  // change the recurring next_service_date — that only advances on completion.
+  customerPlanId: linkedPlan?.customerPlanId || null,
   })
 
         if (result) {
@@ -327,8 +403,9 @@ const handleDeleteJob = async (id: string) => {
       // active plan. Idempotent + never creates jobs, so it's safe to call here.
       if (job.customerId) {
         try {
-          const today = new Date().toISOString().split('T')[0]
-          const res = await advanceServiceScheduleForCustomer(job.customerId, today)
+          // Anchor on the job's actual service date (falls back to today).
+          const completionDate = (job.date ? job.date.split('T')[0] : null) || new Date().toISOString().split('T')[0]
+          const res = await advanceServiceScheduleForCustomer(job.customerId, completionDate)
           if (res.advanced && res.nextServiceDate) {
             const nice = new Date(res.nextServiceDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
             toast.success(`Next service scheduled for ${nice}`)
@@ -388,8 +465,8 @@ const handleDeleteJob = async (id: string) => {
     // already marked Completed earlier, which would have advanced it).
     if (selectedJobForPaid.customerId) {
       try {
-        const today = new Date().toISOString().split('T')[0]
-        await advanceServiceScheduleForCustomer(selectedJobForPaid.customerId, today)
+        const completionDate = (selectedJobForPaid.date ? selectedJobForPaid.date.split('T')[0] : null) || new Date().toISOString().split('T')[0]
+        await advanceServiceScheduleForCustomer(selectedJobForPaid.customerId, completionDate)
       } catch (err) {
         console.error('[v0] advance service schedule (paid) failed:', err)
       }
@@ -677,6 +754,20 @@ const handleDeleteJob = async (id: string) => {
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Recurring service context (shown when scheduling from Service Schedule) */}
+            {linkedPlan && !editingJob && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+                <div className="flex items-center gap-2">
+                  <Repeat className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium">Recurring service · {linkedPlan.planName}</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Currently due {linkedPlan.nextServiceDate ? formatDate(linkedPlan.nextServiceDate) : 'Not set'}.
+                  {' '}The recurring due date won&apos;t change until this job is completed.
+                </p>
+              </div>
+            )}
+
             {/* Customer Section */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">

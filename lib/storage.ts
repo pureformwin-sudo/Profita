@@ -709,6 +709,7 @@ return data.map(item => ({
   customerId: item.customer_id,
   estimateId: item.estimate_id,
   invoiceId: item.invoice_id,
+  customerPlanId: item.customer_plan_id,
   date: item.date,
   startTime: item.start_time,
   endTime: item.end_time,
@@ -739,6 +740,7 @@ export async function addJob(job: Omit<Job, 'id' | 'createdAt'>): Promise<Job | 
   company_id: companyId,
   customer_id: job.customerId,
   estimate_id: job.estimateId || null,
+  customer_plan_id: job.customerPlanId || null,
   date: job.date,
   start_time: job.startTime || null,
   end_time: job.endTime || null,
@@ -769,6 +771,7 @@ export async function addJob(job: Omit<Job, 'id' | 'createdAt'>): Promise<Job | 
   customerId: data.customer_id,
   estimateId: data.estimate_id,
   invoiceId: data.invoice_id,
+  customerPlanId: data.customer_plan_id,
   date: data.date,
   startTime: data.start_time,
   endTime: data.end_time,
@@ -789,6 +792,7 @@ export async function updateJob(id: string, updates: Partial<Omit<Job, 'id' | 'c
   if (updates.customerId) updateData.customer_id = updates.customerId
   if (updates.estimateId !== undefined) updateData.estimate_id = updates.estimateId
   if (updates.invoiceId !== undefined) updateData.invoice_id = updates.invoiceId
+  if (updates.customerPlanId !== undefined) updateData.customer_plan_id = updates.customerPlanId
   if (updates.date) updateData.date = updates.date
   if (updates.startTime !== undefined) updateData.start_time = updates.startTime
   if (updates.endTime !== undefined) updateData.end_time = updates.endTime
@@ -816,6 +820,7 @@ return {
   customerId: data.customer_id,
   estimateId: data.estimate_id,
   invoiceId: data.invoice_id,
+  customerPlanId: data.customer_plan_id,
   date: data.date,
   startTime: data.start_time,
   endTime: data.end_time,
