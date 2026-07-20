@@ -7,8 +7,21 @@ export const TAX_TREATMENT_LABELS: Record<TaxTreatment, string> = {
   ask_accountant: 'Ask accountant',
 }
 
+// Ordered options for tax-treatment selectors.
+export const TAX_TREATMENT_OPTIONS: { value: TaxTreatment }[] = [
+  { value: 'unreviewed' },
+  { value: 'likely_deductible' },
+  { value: 'not_deductible' },
+  { value: 'ask_accountant' },
+]
+
 export function isTransfer(e: Expense): boolean {
   return e.transactionType === 'transfer'
+}
+
+// An expense that counts toward business expense totals (i.e. not a transfer).
+export function isCountableExpense(e: Expense): boolean {
+  return !isTransfer(e)
 }
 
 // Real business expenses only (transfers / CC-bill payments excluded so money
