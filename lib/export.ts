@@ -59,6 +59,62 @@ export function exportToCSV(income: Income[], expenses: Expense[], filename: str
   return true
 }
 
+const TAX_TREATMENT_LABELS: Record<string, string> = {
+  unreviewed: 'Unreviewed',
+  likely_deductible: 'Likely deductible',
+  not_deductible: 'Not deductible',
+  ask_accountant: 'Ask accountant',
+}
+
+// Detailed expense-only CSV including the accounting enrichment fields.
+export function exportExpensesDetailedCSV(expenses: Expense[], filename: string = 'pureform-expenses') {
+  if (expenses.length === 0) return false
+
+  const rows = [...expenses]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .map((e) => ({
+      Date: e.date,
+      Type: e.transactionType === 'transfer' ? 'Transfer / CC Payment' : 'Business Expense',
+      Description: e.description,
+      Vendor: e.vendor || '',
+      Category: e.transactionType === 'transfer' ? '' : e.category,
+      'Business Purpose': e.businessPurpose || '',
+      'Payment Method': e.paymentMethod || '',
+      Amount: e.amount,
+      'Tax Treatment': TAX_TREATMENT_LABELS[e.taxTreatment || 'unreviewed'] || 'Unreviewed',
+      'Tax Note': e.taxNote || '',
+      Receipts: (e.attachments?.length || 0) > 0 ? 'Yes' : 'No',
+      Notes: e.notes || '',
+    }))
+
+  const headers = Object.keys(rows[0])
+  const csvContent = [
+    headers.join(','),
+    ...rows.map((row) =>
+      headers
+        .map((header) => {
+          const value = row[header as keyof typeof row]
+          if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+            return `"${value.replace(/"/g, '""')}"`
+          }
+          return value
+        })
+        .join(','),
+    ),
+  ].join('\n')
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  const url = URL.createObjectURL(blob)
+  link.setAttribute('href', url)
+  link.setAttribute('download', `${filename}-${new Date().toISOString().split('T')[0]}.csv`)
+  link.style.visibility = 'hidden'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  return true
+}
+
 export function generateReport(income: Income[], expenses: Expense[]) {
   const totalIncome = income.reduce((sum, i) => sum + i.amount, 0)
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0)
