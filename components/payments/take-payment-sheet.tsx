@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from "@/components/ui/drawer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,6 +25,7 @@ import {
 import { recordPayment } from "@/lib/payments-storage"
 import { getSettings } from "@/lib/storage"
 import { getProviderAdapter, methodForProvider } from "@/lib/payment-providers"
+import { createPaymentSession, completePaymentSession, cancelPaymentSession } from "@/lib/payment-sessions-storage"
 import {
   openJim,
   copyAmount,
@@ -74,6 +75,8 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
   const [jimSettings, setJimSettings] = useState<JimPaymentSettings>(defaultPaymentSettings.jim)
   const [amountCopied, setAmountCopied] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Tracks an open JIM handoff so returning after leaving the app can resume/clean up.
+  const sessionIdRef = useRef<string | null>(null)
 
   // Load JIM settings + reset local state whenever the sheet opens.
   useEffect(() => {
@@ -121,6 +124,28 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
     }
   }
 
+  // Launch JIM, recording a pending session first so the handoff can be
+  // resumed/cleaned up if the merchant leaves the app and returns. Session
+  // creation is best-effort and never blocks opening JIM.
+  async function handleOpenJim(paymentType: PaymentType) {
+    if (!sessionIdRef.current && numericAmount > 0) {
+      try {
+        const session = await createPaymentSession({
+          customerId: context.customerId,
+          invoiceId: context.invoiceId ?? null,
+          jobId: context.jobId ?? null,
+          provider: "jim",
+          paymentType,
+          amount: numericAmount,
+        })
+        if (session) sessionIdRef.current = session.id
+      } catch (e) {
+        console.error("[v0] createPaymentSession failed:", e)
+      }
+    }
+    openJim()
+  }
+
   async function handleCopyAmount() {
     const ok = await copyAmount(numericAmount)
     if (ok) {
@@ -155,6 +180,10 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
       if (!result.success) {
         toast.error(result.error || "Failed to record payment")
         return
+      }
+      if (sessionIdRef.current) {
+        completePaymentSession(sessionIdRef.current).catch(() => {})
+        sessionIdRef.current = null
       }
       toast.success("Payment recorded")
       setStep("success")
@@ -194,7 +223,14 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
           : "Record payment"
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={(o) => {
+      // Closing without recording: cancel any dangling JIM session.
+      if (!o && sessionIdRef.current) {
+        cancelPaymentSession(sessionIdRef.current).catch(() => {})
+        sessionIdRef.current = null
+      }
+      onOpenChange(o)
+    }}>
       <DrawerContent className="max-h-[92vh]">
         <div className="mx-auto w-full max-w-md overflow-y-auto">
           <DrawerHeader className="text-left">
@@ -319,9 +355,9 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
                     <div className="flex-1">
                       <p className="font-medium">Open JIM &amp; enter the amount</p>
                       <div className="mt-2 flex gap-2">
-                        <Button size="sm" variant="outline" className="flex-1 bg-transparent" onClick={() => openJim()}>
-                          <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open JIM
-                        </Button>
+<Button size="sm" variant="outline" className="flex-1 bg-transparent" onClick={() => handleOpenJim("tap_to_pay")}>
+  <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open JIM
+  </Button>
                         <Button size="sm" variant="outline" className="flex-1 bg-transparent" onClick={handleCopyAmount}>
                           {amountCopied ? <Check className="mr-1.5 h-3.5 w-3.5" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
                           {amountCopied ? "Copied" : "Copy amount"}
@@ -356,9 +392,9 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">1</span>
                     <div className="flex-1">
                       <p className="font-medium">Create a payment link in JIM</p>
-                      <Button size="sm" variant="outline" className="mt-2 w-full bg-transparent" onClick={() => openJim()}>
-                        <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open JIM
-                      </Button>
+<Button size="sm" variant="outline" className="mt-2 w-full bg-transparent" onClick={() => handleOpenJim("payment_link")}>
+  <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open JIM
+  </Button>
                     </div>
                   </li>
                   <li className="flex gap-3">

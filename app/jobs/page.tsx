@@ -17,10 +17,11 @@ import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, 
 import type { PaymentMethod as PaymentsPaymentMethod } from '@/lib/payments-types'
 import { Switch } from '@/components/ui/switch'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
+import { TakePaymentSheet, type TakePaymentContext } from '@/components/payments/take-payment-sheet'
 import { notifyJobCreated, notifyJobCompleted, notifyPaymentReceived, notifyPaymentNeedsDeposit } from '@/lib/in-app-notifications'
 import { formatDate } from '@/lib/utils-finance'
 import { toast } from 'sonner'
-import { Plus, Trash2, CheckCircle, Calendar, Pencil, Users, X, MoreVertical, Clock, FileText, UserPlus, ChevronRight, Search, Sparkles, TrendingUp, Repeat, AlertTriangle, Briefcase, DollarSign } from 'lucide-react'
+import { Plus, Trash2, CheckCircle, Calendar, Pencil, Users, X, MoreVertical, Clock, FileText, UserPlus, ChevronRight, Search, Sparkles, TrendingUp, Repeat, AlertTriangle, Briefcase, DollarSign, CreditCard } from 'lucide-react'
 import { generateJobSuggestion, estimatedProfitability, customerTag } from '@/lib/ai/insights'
 import { cn } from '@/lib/utils'
 import {
@@ -118,6 +119,20 @@ export default function JobsPage() {
   const [showPaidModal, setShowPaidModal] = useState(false)
   const [selectedJobForPaid, setSelectedJobForPaid] = useState<Job | null>(null)
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('Cash')
+
+  // JIM / Take Payment sheet (single page-level instance)
+  const [takePaymentCtx, setTakePaymentCtx] = useState<TakePaymentContext | null>(null)
+  const openTakePayment = (job: Job) => {
+    const c = customers.find((cust) => cust.id === job.customerId)
+    setTakePaymentCtx({
+      customerId: job.customerId,
+      customerName: c?.name,
+      customerPhone: c?.phone,
+      customerEmail: c?.email,
+      jobId: job.id,
+      amount: job.price > 0 ? job.price : undefined,
+    })
+  }
   
   // Job completion notification
   const [notificationJob, setNotificationJob] = useState<Job | null>(null)
@@ -1556,6 +1571,10 @@ onClick={() => openJobDetail(job)}
                         )}
 {job.status === 'Completed' && (
   <>
+  <DropdownMenuItem onClick={() => openTakePayment(job)}>
+  <CreditCard className="h-4 w-4 mr-2" />
+  Take Payment (JIM)
+  </DropdownMenuItem>
   <DropdownMenuItem onClick={() => handleStatusChange(job.id, 'Paid')}>
   <DollarSign className="h-4 w-4 mr-2" />
   Mark Paid
@@ -1638,6 +1657,12 @@ onClick={() => openJobDetail(job)}
                             {job.status === 'Scheduled' ? 'Complete' : 'Mark Paid'}
                           </DropdownMenuItem>
                         )}
+                        {job.status !== 'Paid' && (
+                          <DropdownMenuItem onClick={() => openTakePayment(job)}>
+                            <CreditCard className="h-4 w-4 mr-2" />
+                            Take Payment (JIM)
+                          </DropdownMenuItem>
+                        )}
                         {job.status === 'Completed' && !job.invoiceId && (
                           <DropdownMenuItem onClick={() => handleCreateInvoice(job)}>
                             <FileText className="h-4 w-4 mr-2" />
@@ -1709,6 +1734,15 @@ onClick={() => openJobDetail(job)}
           onRefresh={loadData}
           onEnrollInPlan={handleDrawerEnroll}
         />
+
+        {takePaymentCtx && (
+          <TakePaymentSheet
+            open={!!takePaymentCtx}
+            onOpenChange={(o) => { if (!o) setTakePaymentCtx(null) }}
+            context={takePaymentCtx}
+            onRecorded={() => loadData()}
+          />
+        )}
         </div>
       </AppShell>
   )
