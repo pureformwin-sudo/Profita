@@ -5,6 +5,14 @@
 export type PaymentMethod = 'cash' | 'check' | 'card' | 'bank_transfer' | 'stripe' | 'zelle' | 'venmo' | 'other'
 export type PaymentStatus = 'completed' | 'pending' | 'refunded' | 'failed'
 
+// Payment provider — the service used to collect/process the payment. Designed
+// so Stripe, Square, etc. can be added later without changing the core schema.
+export type PaymentProvider = 'jim' | 'cash' | 'check' | 'other' | 'stripe'
+// How a provider payment was taken.
+export type PaymentType = 'tap_to_pay' | 'payment_link' | 'manual'
+// Who absorbed the processing fee.
+export type FeePaidBy = 'business' | 'customer'
+
 // Invoice payment status (calculated from payments)
 export type InvoicePaymentStatus = 
   | 'unpaid'         // No payments received
@@ -30,6 +38,14 @@ export interface Payment {
   stripePaymentIntentId: string | null
   createdAt: string
   updatedAt: string
+  // Provider / fee metadata (script 35). Safe defaults for legacy rows.
+  provider: PaymentProvider
+  paymentType: PaymentType | null
+  processingFee: number
+  feePaidBy: FeePaidBy | null
+  netAmount: number
+  paymentLink: string | null
+  createdBy: string | null
   // Joined fields (optional)
   customerName?: string
   invoiceNumber?: string
@@ -46,6 +62,12 @@ export interface PaymentInput {
   status?: PaymentStatus
   notes?: string | null
   stripePaymentIntentId?: string | null
+  // Provider / fee metadata (optional; defaults applied server-side).
+  provider?: PaymentProvider
+  paymentType?: PaymentType | null
+  processingFee?: number
+  feePaidBy?: FeePaidBy | null
+  paymentLink?: string | null
 }
 
 export interface PaymentWithDetails extends Omit<Payment, 'customerName' | 'invoiceNumber'> {
