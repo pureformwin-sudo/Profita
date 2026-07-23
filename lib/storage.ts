@@ -1,6 +1,6 @@
 import { createClient, getCachedUser } from '@/lib/supabase/client'
-import type { Income, Expense, Settings, ProfitAllocation, PendingIncome, UpcomingExpense, Job, Customer, BusinessProfile, Estimate, Invoice, EstimateItem, InvoiceItem, EstimateStatus, InvoiceStatus, Employee, JobWorker, PayrollSummary } from './types'
-import { DEFAULT_EXPENSE_CATEGORIES } from './types'
+import type { Income, Expense, Settings, ProfitAllocation, PendingIncome, UpcomingExpense, Job, Customer, BusinessProfile, Estimate, Invoice, EstimateItem, InvoiceItem, EstimateStatus, InvoiceStatus, Employee, JobWorker, PayrollSummary, PaymentSettings } from './types'
+import { DEFAULT_EXPENSE_CATEGORIES, defaultPaymentSettings } from './types'
 import { triggerCommissionForInvoicePaid, triggerCommissionForJobCreated } from './commission-triggers'
 
 // Get Supabase client (singleton, see lib/supabase/client.ts)
@@ -51,6 +51,7 @@ export const defaultSettings: Settings = {
   expenseCategories: ['Fuel', 'Equipment', 'Supplies', 'Marketing', 'Software', 'Other'],
   darkMode: false,
   profile: defaultProfile,
+  paymentSettings: defaultPaymentSettings,
 }
 
 // Income operations
@@ -692,6 +693,7 @@ export async function getSettings(): Promise<Settings> {
     expenseCategories: data.expense_categories,
     darkMode: data.dark_mode,
     profile: data.profile as BusinessProfile || defaultProfile,
+    paymentSettings: (data.payment_settings as PaymentSettings) || defaultPaymentSettings,
   }
 }
 
@@ -712,6 +714,7 @@ export async function saveSettings(settings: Settings): Promise<boolean> {
       expense_categories: settings.expenseCategories,
       dark_mode: settings.darkMode,
       profile: settings.profile || defaultProfile,
+      payment_settings: settings.paymentSettings || defaultPaymentSettings,
     }, { onConflict: 'user_id' })
   
   if (error) {

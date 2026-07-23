@@ -14,6 +14,8 @@ import {
 import { Customer, Job, Estimate, Invoice, Income } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { CustomerPortalLink } from '@/components/customer-portal-link'
+import { TakePaymentButton } from '@/components/payments/take-payment-button'
+import { PaymentHistory } from '@/components/payments/payment-history'
 
 interface CustomerDetailDrawerProps {
   customer: Customer | null
@@ -47,8 +49,14 @@ export function CustomerDetailDrawer({
   onViewInvoice,
 }: CustomerDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState('overview')
+  const [paymentRefresh, setPaymentRefresh] = useState(0)
 
   if (!customer) return null
+
+  // Outstanding balance across this customer's invoices (suggested amount).
+  const outstandingBalance = invoices
+    .filter((i) => i.customerId === customer.id)
+    .reduce((sum, i) => sum + Math.max(0, (i.total || 0) - (i.amountPaid || 0)), 0)
 
   // Filter data for this customer
   const customerJobs = jobs.filter(j => j.customerId === customer.id)
@@ -150,6 +158,22 @@ export function CustomerDetailDrawer({
                 </a>
               </Button>
             )}
+          </div>
+
+          {/* Take Payment */}
+          <div className="px-3 pb-3">
+            <TakePaymentButton
+              size="sm"
+              className="w-full"
+              context={{
+                customerId: customer.id,
+                customerName: customer.name,
+                customerPhone: customer.phone,
+                customerEmail: customer.email,
+                amount: outstandingBalance > 0 ? outstandingBalance : undefined,
+              }}
+              onRecorded={() => setPaymentRefresh((k) => k + 1)}
+            />
           </div>
         </div>
 
@@ -355,9 +379,13 @@ export function CustomerDetailDrawer({
               </TabsContent>
 
               {/* Invoices Tab */}
-              <TabsContent value="invoices" className="mt-0 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">{customerInvoices.length} invoices</p>
+            <TabsContent value="invoices" className="mt-0 space-y-4">
+              <div>
+                <p className="mb-2 text-sm font-medium">Payment history</p>
+                <PaymentHistory customerId={customer.id} refreshKey={paymentRefresh} />
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">{customerInvoices.length} invoices</p>
                   <Button size="sm" variant="outline" onClick={() => { onCreateInvoice(customer.id); onOpenChange(false) }}>
                     <Plus className="h-4 w-4 mr-1" /> New Invoice
                   </Button>
