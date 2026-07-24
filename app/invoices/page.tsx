@@ -25,6 +25,7 @@ import { notifyInvoiceCreated, notifyInvoicePaid, notifyEstimateCreated, notifyE
 import { recordPayment, getPaymentsForInvoice, type PaymentMethod as NewPaymentMethod } from '@/lib/payments-storage'
 import { type Payment } from '@/lib/payments-types'
 import { AdminDocumentPreview } from '@/components/admin-document-preview'
+import { TakePaymentSheet, type TakePaymentContext } from '@/components/payments/take-payment-sheet'
 
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -43,6 +44,8 @@ export default function InvoicesPage() {
   
   // Payment method dialog state (legacy - kept for backwards compat)
   const [showPaymentDialog, setShowPaymentDialog] = useState(false)
+  // JIM / Take Payment sheet (single instance, opened per-invoice)
+  const [takePaymentCtx, setTakePaymentCtx] = useState<TakePaymentContext | null>(null)
   const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState<Invoice | null>(null)
   
   // Record Payment modal state (new Phase 4)
@@ -664,6 +667,19 @@ async function handleConvertToJob(estimate: Estimate) {
                               )}
                               {(invoice.status === 'sent' || invoice.status === 'overdue') && (
                                 <>
+                                  <DropdownMenuItem onClick={() => {
+                                    const c = customers.find(cust => cust.id === invoice.customerId)
+                                    setTakePaymentCtx({
+                                      customerId: invoice.customerId,
+                                      customerName: invoice.customerName || c?.name,
+                                      customerPhone: c?.phone,
+                                      customerEmail: c?.email,
+                                      invoiceId: invoice.id,
+                                      amount: Math.max(0, invoice.total - invoice.amountPaid),
+                                    })
+                                  }}>
+                                    <CreditCard className="h-4 w-4 mr-2" /> Take Payment (JIM)
+                                  </DropdownMenuItem>
 <DropdownMenuItem onClick={() => openPaymentDialog(invoice)}>
   <DollarSign className="h-4 w-4 mr-2" /> Mark as Paid
   </DropdownMenuItem>
@@ -1083,6 +1099,16 @@ async function handleConvertToJob(estimate: Estimate) {
             invoiceNumber={notificationInvoice.invoiceNumber}
             invoiceAmount={notificationInvoice.total.toFixed(2)}
             onComplete={() => setNotificationInvoice(null)}
+          />
+        )}
+
+        {/* Take Payment (JIM) sheet */}
+        {takePaymentCtx && (
+          <TakePaymentSheet
+            open={!!takePaymentCtx}
+            onOpenChange={(o) => { if (!o) setTakePaymentCtx(null) }}
+            context={takePaymentCtx}
+            onRecorded={() => loadData()}
           />
         )}
 

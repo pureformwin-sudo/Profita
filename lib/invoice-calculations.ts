@@ -15,6 +15,37 @@ function getSupabase() {
   return createClient()
 }
 
+// Map a raw payments row to a Payment, defaulting the provider/fee columns
+// (script 35) so legacy rows and this calculation module stay type-safe.
+function rowToPayment(p: any): Payment {
+  const amount = Number(p.amount)
+  const processingFee = Number(p.processing_fee) || 0
+  return {
+    id: p.id,
+    companyId: p.company_id,
+    userId: p.user_id,
+    invoiceId: p.invoice_id,
+    jobId: p.job_id,
+    customerId: p.customer_id,
+    amount,
+    paymentMethod: p.payment_method,
+    paymentDate: p.payment_date,
+    referenceNumber: p.reference_number,
+    status: p.status,
+    notes: p.notes,
+    stripePaymentIntentId: p.stripe_payment_intent_id,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+    provider: p.provider || 'other',
+    paymentType: p.payment_type || null,
+    processingFee,
+    feePaidBy: p.fee_paid_by || null,
+    netAmount: p.net_amount != null ? Number(p.net_amount) : amount - processingFee,
+    paymentLink: p.payment_link ?? null,
+    createdBy: p.created_by ?? null,
+  }
+}
+
 // ============================================================================
 // Invoice Balance Calculations
 // ============================================================================
@@ -114,23 +145,7 @@ export async function getInvoiceWithBalance(invoiceId: string): Promise<InvoiceW
     console.error('Error fetching invoice payments:', paymentsError)
   }
   
-  const payments: Payment[] = (paymentsData || []).map((p: any) => ({
-    id: p.id,
-    companyId: p.company_id,
-    userId: p.user_id,
-    invoiceId: p.invoice_id,
-    jobId: p.job_id,
-    customerId: p.customer_id,
-    amount: Number(p.amount),
-    paymentMethod: p.payment_method,
-    paymentDate: p.payment_date,
-    referenceNumber: p.reference_number,
-    status: p.status,
-    notes: p.notes,
-    stripePaymentIntentId: p.stripe_payment_intent_id,
-    createdAt: p.created_at,
-    updatedAt: p.updated_at,
-  }))
+  const payments: Payment[] = (paymentsData || []).map(rowToPayment)
   
   const total = Number(invoice.total)
   const amountPaid = calculateTotalPaid(payments)
@@ -192,23 +207,7 @@ export async function getCustomerInvoicesWithBalance(customerId: string): Promis
     if (!paymentsByInvoice.has(invoiceId)) {
       paymentsByInvoice.set(invoiceId, [])
     }
-    paymentsByInvoice.get(invoiceId)!.push({
-      id: p.id,
-      companyId: p.company_id,
-      userId: p.user_id,
-      invoiceId: p.invoice_id,
-      jobId: p.job_id,
-      customerId: p.customer_id,
-      amount: Number(p.amount),
-      paymentMethod: p.payment_method,
-      paymentDate: p.payment_date,
-      referenceNumber: p.reference_number,
-      status: p.status,
-      notes: p.notes,
-      stripePaymentIntentId: p.stripe_payment_intent_id,
-      createdAt: p.created_at,
-      updatedAt: p.updated_at,
-    })
+    paymentsByInvoice.get(invoiceId)!.push(rowToPayment(p))
   }
   
   return invoices.map(invoice => {
@@ -274,23 +273,7 @@ export async function getUnpaidInvoices(): Promise<InvoiceWithBalance[]> {
     if (!paymentsByInvoice.has(invoiceId)) {
       paymentsByInvoice.set(invoiceId, [])
     }
-    paymentsByInvoice.get(invoiceId)!.push({
-      id: p.id,
-      companyId: p.company_id,
-      userId: p.user_id,
-      invoiceId: p.invoice_id,
-      jobId: p.job_id,
-      customerId: p.customer_id,
-      amount: Number(p.amount),
-      paymentMethod: p.payment_method,
-      paymentDate: p.payment_date,
-      referenceNumber: p.reference_number,
-      status: p.status,
-      notes: p.notes,
-      stripePaymentIntentId: p.stripe_payment_intent_id,
-      createdAt: p.created_at,
-      updatedAt: p.updated_at,
-    })
+    paymentsByInvoice.get(invoiceId)!.push(rowToPayment(p))
   }
   
   return invoices

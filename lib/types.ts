@@ -162,11 +162,35 @@ export interface BusinessProfile {
   taxRate: number
 }
 
+// JIM external-app payment integration config (Settings > Payments).
+export interface JimPaymentSettings {
+  enabled: boolean
+  defaultPaymentType: 'tap_to_pay' | 'payment_link'
+  defaultFeePaidBy: 'business' | 'customer'
+  showEstimatedFee: boolean
+  accountLabel?: string
+}
+
+export interface PaymentSettings {
+  jim: JimPaymentSettings
+}
+
+export const defaultPaymentSettings: PaymentSettings = {
+  jim: {
+    enabled: true,
+    defaultPaymentType: 'tap_to_pay',
+    defaultFeePaidBy: 'business',
+    showEstimatedFee: true,
+    accountLabel: '',
+  },
+}
+
 export interface Settings {
   profitAllocation: ProfitAllocation
   expenseCategories: string[]
   darkMode: boolean
   profile?: BusinessProfile
+  paymentSettings?: PaymentSettings
 }
 
 export interface PendingIncome {

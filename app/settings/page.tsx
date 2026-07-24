@@ -20,7 +20,7 @@ import { getSettings, saveSettings, resetAllData, getIncome, getExpenses, getJob
 import { Settings as SettingsType, ProfitAllocation, Income, Expense, BusinessProfile } from '@/lib/types'
 import { toast } from 'sonner'
 import { exportToCSV } from '@/lib/export'
-import { Trash2, Download, Building2, MapPin, Target, Receipt, Shield, Users, Bell, MessageSquare } from 'lucide-react'
+import { Trash2, Download, Building2, MapPin, Target, Receipt, Shield, Users, Bell, MessageSquare, CreditCard } from 'lucide-react'
 import { useAuth } from '@/components/auth-provider'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
@@ -180,6 +180,24 @@ export default function SettingsPage() {
             </Link>
           </section>
         )}
+
+        {/* Payments Section */}
+        <section className="mb-8">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">Payments</h2>
+          <Link href="/settings/payments">
+            <div className="rounded-xl border border-border bg-card p-5 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <CreditCard className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium">Card Payments (JIM)</p>
+                  <p className="text-sm text-muted-foreground">Take card payments with JIM Tap to Pay or payment links</p>
+                </div>
+              </div>
+            </div>
+          </Link>
+        </section>
 
         {/* Notifications Section */}
         <section className="mb-8">

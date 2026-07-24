@@ -10,10 +10,46 @@ import type {
   PaymentWithDetails,
   PaymentMethod,
   PaymentStatus,
+  PaymentProvider,
+  PaymentType,
+  FeePaidBy,
   RecordPaymentResult,
   RefundPaymentResult 
 } from './payments-types'
 import { triggerCommissionForPayment } from './commission-triggers'
+
+// Shared mapper: raw payments row -> Payment. Handles provider/fee columns
+// (script 35) with safe defaults for legacy rows and optional joined fields.
+function mapPaymentRow(p: any): Payment {
+  const amount = Number(p.amount)
+  const processingFee = Number(p.processing_fee) || 0
+  return {
+    id: p.id,
+    companyId: p.company_id,
+    userId: p.user_id,
+    invoiceId: p.invoice_id,
+    jobId: p.job_id,
+    customerId: p.customer_id,
+    amount,
+    paymentMethod: p.payment_method as PaymentMethod,
+    paymentDate: p.payment_date,
+    referenceNumber: p.reference_number,
+    status: p.status as PaymentStatus,
+    notes: p.notes,
+    stripePaymentIntentId: p.stripe_payment_intent_id,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+    provider: (p.provider || 'other') as PaymentProvider,
+    paymentType: (p.payment_type || null) as PaymentType | null,
+    processingFee,
+    feePaidBy: (p.fee_paid_by || null) as FeePaidBy | null,
+    netAmount: p.net_amount != null ? Number(p.net_amount) : amount - processingFee,
+    paymentLink: p.payment_link ?? null,
+    createdBy: p.created_by ?? null,
+    customerName: p.customers?.name,
+    invoiceNumber: p.invoices?.invoice_number,
+  }
+}
 
 // Re-export types for consumers
 export type { PaymentMethod, PaymentStatus }
@@ -70,25 +106,7 @@ export async function getPayments(): Promise<Payment[]> {
     return []
   }
   
-  return (data || []).map((p: any) => ({
-    id: p.id,
-    companyId: p.company_id,
-    userId: p.user_id,
-    invoiceId: p.invoice_id,
-    jobId: p.job_id,
-    customerId: p.customer_id,
-    amount: Number(p.amount),
-    paymentMethod: p.payment_method as PaymentMethod,
-    paymentDate: p.payment_date,
-    referenceNumber: p.reference_number,
-    status: p.status as PaymentStatus,
-    notes: p.notes,
-    stripePaymentIntentId: p.stripe_payment_intent_id,
-    createdAt: p.created_at,
-    updatedAt: p.updated_at,
-    customerName: p.customers?.name,
-    invoiceNumber: p.invoices?.invoice_number,
-  }))
+  return (data || []).map(mapPaymentRow)
 }
 
 /**
@@ -111,24 +129,7 @@ export async function getPaymentsForInvoice(invoiceId: string): Promise<Payment[
     return []
   }
   
-  return (data || []).map((p: any) => ({
-    id: p.id,
-    companyId: p.company_id,
-    userId: p.user_id,
-    invoiceId: p.invoice_id,
-    jobId: p.job_id,
-    customerId: p.customer_id,
-    amount: Number(p.amount),
-    paymentMethod: p.payment_method as PaymentMethod,
-    paymentDate: p.payment_date,
-    referenceNumber: p.reference_number,
-    status: p.status as PaymentStatus,
-    notes: p.notes,
-    stripePaymentIntentId: p.stripe_payment_intent_id,
-    createdAt: p.created_at,
-    updatedAt: p.updated_at,
-    customerName: p.customers?.name,
-  }))
+  return (data || []).map(mapPaymentRow)
 }
 
 /**
@@ -151,24 +152,7 @@ export async function getPaymentsForCustomer(customerId: string): Promise<Paymen
     return []
   }
   
-  return (data || []).map((p: any) => ({
-    id: p.id,
-    companyId: p.company_id,
-    userId: p.user_id,
-    invoiceId: p.invoice_id,
-    jobId: p.job_id,
-    customerId: p.customer_id,
-    amount: Number(p.amount),
-    paymentMethod: p.payment_method as PaymentMethod,
-    paymentDate: p.payment_date,
-    referenceNumber: p.reference_number,
-    status: p.status as PaymentStatus,
-    notes: p.notes,
-    stripePaymentIntentId: p.stripe_payment_intent_id,
-    createdAt: p.created_at,
-    updatedAt: p.updated_at,
-    invoiceNumber: p.invoices?.invoice_number,
-  }))
+  return (data || []).map(mapPaymentRow)
 }
 
 /**
@@ -192,25 +176,7 @@ export async function getPaymentById(paymentId: string): Promise<Payment | null>
     return null
   }
   
-  return {
-    id: data.id,
-    companyId: data.company_id,
-    userId: data.user_id,
-    invoiceId: data.invoice_id,
-    jobId: data.job_id,
-    customerId: data.customer_id,
-    amount: Number(data.amount),
-    paymentMethod: data.payment_method as PaymentMethod,
-    paymentDate: data.payment_date,
-    referenceNumber: data.reference_number,
-    status: data.status as PaymentStatus,
-    notes: data.notes,
-    stripePaymentIntentId: data.stripe_payment_intent_id,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
-    customerName: (data as any).customers?.name,
-    invoiceNumber: (data as any).invoices?.invoice_number,
-  }
+  return mapPaymentRow(data)
 }
 
 // ============================================================================
@@ -282,6 +248,11 @@ export async function recordPayment(
     }
   }
   
+  // Provider / fee metadata with safe defaults.
+  const provider = input.provider || 'other'
+  const processingFee = Math.max(0, Number(input.processingFee) || 0)
+  const netAmount = Math.round((input.amount - processingFee) * 100) / 100
+
   // Insert payment
   const { data, error } = await supabase
     .from('payments')
@@ -298,6 +269,13 @@ export async function recordPayment(
       status: input.status || 'completed',
       notes: input.notes || null,
       stripe_payment_intent_id: input.stripePaymentIntentId || null,
+      provider,
+      payment_type: input.paymentType || null,
+      processing_fee: processingFee,
+      fee_paid_by: input.feePaidBy || null,
+      net_amount: netAmount,
+      payment_link: input.paymentLink || null,
+      created_by: user.id,
     })
     .select()
     .single()
@@ -305,6 +283,55 @@ export async function recordPayment(
   if (error) {
     console.error('Error recording payment:', error)
     return { success: false, error: error.message }
+  }
+
+  // Record the processing fee as a business expense ONLY when ALL hold:
+  //   - the payment was actually saved with completed/paid status (above), AND
+  //   - a real confirmed fee was entered (> 0, never an estimate), AND
+  //   - the business absorbed the fee (customer-paid fees are tracked on the
+  //     payment record only and never become a business expense).
+  // The expense is linked to the payment via payment_id and is idempotent: a
+  // pre-check plus a partial unique index (script 36) guarantee that
+  // editing/re-saving can never create a duplicate processing-fee expense.
+  // Non-blocking — a fee-expense failure never fails the already-saved payment.
+  const paymentSaved = (input.status || 'completed') === 'completed'
+  if (processingFee > 0 && input.feePaidBy === 'business' && paymentSaved) {
+    try {
+      const { data: existingFee } = await supabase
+        .from('expenses')
+        .select('id')
+        .eq('payment_id', data.id)
+        .maybeSingle()
+
+      if (!existingFee) {
+        const { error: feeErr } = await supabase
+          .from('expenses')
+          .insert({
+            company_id: companyId,
+            user_id: user.id,
+            payment_id: data.id,
+            amount: processingFee,
+            date: input.paymentDate || new Date().toISOString().split('T')[0],
+            category: 'Processing Fees',
+            description: `${provider === 'jim' ? 'JIM' : provider} processing fee`,
+            payment_method: 'card',
+            recurrence: 'none',
+            transaction_type: 'business_expense',
+            tax_treatment: 'unreviewed',
+            vendor: provider === 'jim' ? 'JIM' : null,
+            customer_id: input.customerId || null,
+            job_id: input.jobId || null,
+            notes: `Auto-recorded processing fee for payment ${data.id}`,
+          })
+        // 23505 = unique_violation: a concurrent insert already linked this
+        // payment's fee. That is the desired idempotent outcome, not an error.
+        if (feeErr && feeErr.code !== '23505') {
+          console.error('[Payments] Failed to record processing-fee expense:', feeErr.message)
+        }
+      }
+    } catch (feeErr) {
+      console.error('[Payments] Processing-fee expense error:', feeErr)
+    }
   }
   
   // If payment is completed and linked to invoice, update invoice amount_paid
@@ -395,23 +422,7 @@ export async function recordPayment(
     
     return {
       success: true,
-      payment: {
-        id: data.id,
-        companyId: data.company_id,
-        userId: data.user_id,
-        invoiceId: data.invoice_id,
-        jobId: data.job_id,
-        customerId: data.customer_id,
-        amount: Number(data.amount),
-        paymentMethod: data.payment_method as PaymentMethod,
-        paymentDate: data.payment_date,
-        referenceNumber: data.reference_number,
-        status: data.status as PaymentStatus,
-        notes: data.notes,
-        stripePaymentIntentId: data.stripe_payment_intent_id,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at,
-      },
+      payment: mapPaymentRow(data),
       invoiceFullyPaid,
       remainingBalance: invoiceTotal - newAmountPaid,
     }
@@ -452,23 +463,7 @@ export async function recordPayment(
   
   return {
     success: true,
-    payment: {
-      id: data.id,
-      companyId: data.company_id,
-      userId: data.user_id,
-      invoiceId: data.invoice_id,
-      jobId: data.job_id,
-      customerId: data.customer_id,
-      amount: Number(data.amount),
-      paymentMethod: data.payment_method as PaymentMethod,
-      paymentDate: data.payment_date,
-      referenceNumber: data.reference_number,
-      status: data.status as PaymentStatus,
-      notes: data.notes,
-      stripePaymentIntentId: data.stripe_payment_intent_id,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    },
+    payment: mapPaymentRow(data),
   }
 }
 
@@ -509,23 +504,7 @@ export async function updatePayment(
   
   return {
     success: true,
-    payment: {
-      id: data.id,
-      companyId: data.company_id,
-      userId: data.user_id,
-      invoiceId: data.invoice_id,
-      jobId: data.job_id,
-      customerId: data.customer_id,
-      amount: Number(data.amount),
-      paymentMethod: data.payment_method as PaymentMethod,
-      paymentDate: data.payment_date,
-      referenceNumber: data.reference_number,
-      status: data.status as PaymentStatus,
-      notes: data.notes,
-      stripePaymentIntentId: data.stripe_payment_intent_id,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    },
+    payment: mapPaymentRow(data),
   }
 }
 
@@ -572,23 +551,7 @@ export async function refundPayment(
   
   return {
     success: true,
-    payment: {
-      id: data.id,
-      companyId: data.company_id,
-      userId: data.user_id,
-      invoiceId: data.invoice_id,
-      jobId: data.job_id,
-      customerId: data.customer_id,
-      amount: Number(data.amount),
-      paymentMethod: data.payment_method as PaymentMethod,
-      paymentDate: data.payment_date,
-      referenceNumber: data.reference_number,
-      status: data.status as PaymentStatus,
-      notes: data.notes,
-      stripePaymentIntentId: data.stripe_payment_intent_id,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    },
+    payment: mapPaymentRow(data),
     newBalance,
   }
 }
