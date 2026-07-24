@@ -72,6 +72,11 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
   const [reference, setReference] = useState("")
   const [paymentLink, setPaymentLink] = useState("")
   const [feePaidBy, setFeePaidBy] = useState<FeePaidBy>("business")
+  // The ACTUAL fee JIM charged, confirmed by the user at completion time.
+  // Empty string = not entered yet; only a real, edited value is used for
+  // accounting (never the pre-filled estimate on its own is treated as final
+  // until the user confirms the step).
+  const [confirmedFee, setConfirmedFee] = useState<string>("")
   const [jimSettings, setJimSettings] = useState<JimPaymentSettings>(defaultPaymentSettings.jim)
   const [amountCopied, setAmountCopied] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -86,6 +91,7 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
     setAmount(context.amount != null && context.amount > 0 ? context.amount.toFixed(2) : "")
     setReference("")
     setPaymentLink("")
+    setConfirmedFee("")
     setAmountCopied(false)
     getSettings()
       .then((s) => {
@@ -117,12 +123,22 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
       toast.error("Enter a valid amount first")
       return
     }
-    if (provider === "jim") {
-      setStep(jimSettings.defaultPaymentType === "payment_link" ? "jim_link" : "jim_tap")
-    } else {
-      setStep("cash_check")
-    }
+  if (provider === "jim") {
+  // Pre-fill the fee field with the estimate as a convenience; the user
+  // edits it to the actual fee JIM charged before confirming.
+  setConfirmedFee(feeInfo && feeInfo.fee > 0 ? feeInfo.fee.toFixed(2) : "")
+  setStep(jimSettings.defaultPaymentType === "payment_link" ? "jim_link" : "jim_tap")
+  } else {
+  setStep("cash_check")
   }
+  }
+
+  // Final confirmed fee actually used for accounting. Only meaningful for
+  // JIM + business-absorbed; anything blank/invalid resolves to 0 (no expense).
+  const confirmedFeeAmount = useMemo(() => {
+    const n = Number.parseFloat(confirmedFee)
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0
+  }, [confirmedFee])
 
   // Launch JIM, recording a pending session first so the handoff can be
   // resumed/cleaned up if the merchant leaves the app and returns. Session
@@ -171,7 +187,8 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
         paymentMethod: methodForProvider(provider),
         provider,
         paymentType,
-        processingFee: provider === "jim" && feePaidBy === "business" ? feeInfo?.fee ?? 0 : 0,
+        // Use the user-confirmed fee (not the estimate). Blank/0 => no fee expense.
+        processingFee: provider === "jim" && feePaidBy === "business" ? confirmedFeeAmount : 0,
         feePaidBy: provider === "jim" ? feePaidBy : null,
         paymentLink: extra?.paymentLink || null,
         referenceNumber: extra?.reference || reference || null,
@@ -378,6 +395,29 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
                   <Label htmlFor="tap-ref">Reference (optional)</Label>
                   <Input id="tap-ref" placeholder="JIM confirmation #" value={reference} onChange={(e) => setReference(e.target.value)} />
                 </div>
+                {feePaidBy === "business" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="tap-fee">Processing fee charged by JIM</Label>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                      <Input
+                        id="tap-fee"
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0"
+                        className="pl-6"
+                        placeholder="0.00"
+                        value={confirmedFee}
+                        onChange={(e) => setConfirmedFee(e.target.value)}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Pre-filled with an estimate — enter the actual fee from JIM. Leave blank or $0 to skip the fee expense.
+                      {confirmedFeeAmount > 0 ? ` Net you keep: $${(numericAmount - confirmedFeeAmount).toFixed(2)}.` : ""}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -445,8 +485,8 @@ export function TakePaymentSheet({ open, onOpenChange, context, onRecorded }: Ta
                     {context.customerName ? ` for ${context.customerName}` : ""}
                   </p>
                 </div>
-                {provider === "jim" && feePaidBy === "business" && feeInfo && feeInfo.fee > 0 && (
-                  <Badge variant="secondary">Fee ${feeInfo.fee.toFixed(2)} logged to Finances · net ${feeInfo.net.toFixed(2)}</Badge>
+                {provider === "jim" && feePaidBy === "business" && confirmedFeeAmount > 0 && (
+                  <Badge variant="secondary">Fee ${confirmedFeeAmount.toFixed(2)} logged to Finances · net ${(numericAmount - confirmedFeeAmount).toFixed(2)}</Badge>
                 )}
               </div>
             )}

@@ -285,33 +285,53 @@ export async function recordPayment(
     return { success: false, error: error.message }
   }
 
-  // Record the processing fee as a business expense ONLY when the business
-  // absorbed it (so net proceeds = income - fee in Finances, without ever
-  // double-counting revenue). When the customer covered the fee, it is tracked
-  // on the payment record only. Non-blocking — a fee failure never blocks the
-  // payment itself.
-  if (processingFee > 0 && input.feePaidBy === 'business' && (input.status || 'completed') === 'completed') {
-    supabase
-      .from('expenses')
-      .insert({
-        company_id: companyId,
-        user_id: user.id,
-        amount: processingFee,
-        date: input.paymentDate || new Date().toISOString().split('T')[0],
-        category: 'Processing Fees',
-        description: `${provider === 'jim' ? 'JIM' : provider} processing fee`,
-        payment_method: 'card',
-        recurrence: 'none',
-        transaction_type: 'business_expense',
-        tax_treatment: 'unreviewed',
-        vendor: provider === 'jim' ? 'JIM' : null,
-        customer_id: input.customerId || null,
-        job_id: input.jobId || null,
-        notes: `Auto-recorded processing fee for payment ${data.id}`,
-      })
-      .then(({ error: feeErr }) => {
-        if (feeErr) console.error('[Payments] Failed to record processing-fee expense:', feeErr.message)
-      })
+  // Record the processing fee as a business expense ONLY when ALL hold:
+  //   - the payment was actually saved with completed/paid status (above), AND
+  //   - a real confirmed fee was entered (> 0, never an estimate), AND
+  //   - the business absorbed the fee (customer-paid fees are tracked on the
+  //     payment record only and never become a business expense).
+  // The expense is linked to the payment via payment_id and is idempotent: a
+  // pre-check plus a partial unique index (script 36) guarantee that
+  // editing/re-saving can never create a duplicate processing-fee expense.
+  // Non-blocking — a fee-expense failure never fails the already-saved payment.
+  const paymentSaved = (input.status || 'completed') === 'completed'
+  if (processingFee > 0 && input.feePaidBy === 'business' && paymentSaved) {
+    try {
+      const { data: existingFee } = await supabase
+        .from('expenses')
+        .select('id')
+        .eq('payment_id', data.id)
+        .maybeSingle()
+
+      if (!existingFee) {
+        const { error: feeErr } = await supabase
+          .from('expenses')
+          .insert({
+            company_id: companyId,
+            user_id: user.id,
+            payment_id: data.id,
+            amount: processingFee,
+            date: input.paymentDate || new Date().toISOString().split('T')[0],
+            category: 'Processing Fees',
+            description: `${provider === 'jim' ? 'JIM' : provider} processing fee`,
+            payment_method: 'card',
+            recurrence: 'none',
+            transaction_type: 'business_expense',
+            tax_treatment: 'unreviewed',
+            vendor: provider === 'jim' ? 'JIM' : null,
+            customer_id: input.customerId || null,
+            job_id: input.jobId || null,
+            notes: `Auto-recorded processing fee for payment ${data.id}`,
+          })
+        // 23505 = unique_violation: a concurrent insert already linked this
+        // payment's fee. That is the desired idempotent outcome, not an error.
+        if (feeErr && feeErr.code !== '23505') {
+          console.error('[Payments] Failed to record processing-fee expense:', feeErr.message)
+        }
+      }
+    } catch (feeErr) {
+      console.error('[Payments] Processing-fee expense error:', feeErr)
+    }
   }
   
   // If payment is completed and linked to invoice, update invoice amount_paid
