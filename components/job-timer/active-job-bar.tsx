@@ -22,11 +22,19 @@ export function ActiveJobBar() {
 
   if (!active) return null
 
+  // The label and the number both come from the SAME open segment, so the bar
+  // flips from travel to work the instant the work segment exists. It can never
+  // keep counting travel while the job is actually in progress.
   const isTravel = active.entry.entryType === 'travel'
-  // Cumulative: completed work on this job + the running segment.
-  const elapsed = isTravel
-    ? segmentSeconds(active.entry, now)
-    : active.priorWorkSeconds + segmentSeconds(active.entry, now)
+  const isBreak = active.entry.entryType === 'break'
+  // Travel/break show only their own segment; work shows cumulative job work.
+  const elapsed =
+    isTravel || isBreak
+      ? segmentSeconds(active.entry, now)
+      : active.priorWorkSeconds + segmentSeconds(active.entry, now)
+
+  const accent = isTravel || isBreak ? 'amber' : 'emerald'
+  const label = isTravel ? 'On the way' : isBreak ? 'On break' : 'In progress'
 
   const open = () => {
     router.push(`/jobs?job=${active.jobId}`)
@@ -45,7 +53,7 @@ export function ActiveJobBar() {
         aria-label={`Open active job for ${active.customerName}`}
         className={cn(
           'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left shadow-lg backdrop-blur-xl transition-colors lg:w-80',
-          isTravel
+          accent === 'amber'
             ? 'border-amber-500/50 bg-amber-500/15 hover:bg-amber-500/25'
             : 'border-emerald-500/50 bg-emerald-500/15 hover:bg-emerald-500/25',
         )}
@@ -54,13 +62,13 @@ export function ActiveJobBar() {
           <span
             className={cn(
               'absolute inline-flex h-full w-full animate-ping rounded-full opacity-75',
-              isTravel ? 'bg-amber-500' : 'bg-emerald-500',
+              accent === 'amber' ? 'bg-amber-500' : 'bg-emerald-500',
             )}
           />
           <span
             className={cn(
               'relative inline-flex h-2.5 w-2.5 rounded-full',
-              isTravel ? 'bg-amber-500' : 'bg-emerald-500',
+              accent === 'amber' ? 'bg-amber-500' : 'bg-emerald-500',
             )}
           />
         </span>
@@ -69,11 +77,11 @@ export function ActiveJobBar() {
           <p
             className={cn(
               'flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide',
-              isTravel ? 'text-amber-600' : 'text-emerald-600',
+              accent === 'amber' ? 'text-amber-600' : 'text-emerald-600',
             )}
           >
             {isTravel ? <Truck className="h-3 w-3" /> : <Timer className="h-3 w-3" />}
-            {isTravel ? 'On the way' : 'Active job'}
+            {label}
           </p>
           <p className="truncate text-sm font-semibold text-foreground">{active.customerName}</p>
         </div>

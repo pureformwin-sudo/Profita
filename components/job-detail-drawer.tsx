@@ -104,6 +104,9 @@ export function JobDetailDrawer({
   const [enrollPrice, setEnrollPrice] = useState('')
   const [enrollAutoRenew, setEnrollAutoRenew] = useState(true)
   const [enrollingNow, setEnrollingNow] = useState(false)
+  // Bumped after any timer action so the Time Tracking history re-reads the
+  // segments and never shows a stale "running" row after a transition.
+  const [timerTick, setTimerTick] = useState(0)
 
   if (!job || !customer) return null
 
@@ -211,7 +214,10 @@ export function JobDetailDrawer({
         return (
           <JobTimerPanel
             job={job}
-            onRefresh={onRefresh}
+            onRefresh={() => {
+              setTimerTick((t) => t + 1)
+              onRefresh()
+            }}
             // Preserve the existing completion workflow: finishing a job still
             // creates the invoice, but never marks it paid.
             onCompleted={async () => {
@@ -569,7 +575,7 @@ export function JobDetailDrawer({
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="px-4 py-3 bg-muted/20 border-b border-border">
-                  <TimeTrackingSection jobId={job.id} onRefresh={onRefresh} />
+                  <TimeTrackingSection jobId={job.id} refreshKey={timerTick} onRefresh={onRefresh} />
                 </div>
               </CollapsibleContent>
             </Collapsible>

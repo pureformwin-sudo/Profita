@@ -46,6 +46,14 @@ export interface JobTimeSummary {
   /** First start and last end across all segments. */
   firstStart: string | null
   lastEnd: string | null
+  /**
+   * Start of the first WORK segment. Distinct from firstStart, which may point at
+   * a travel segment — showing that as "Started at" made the work timer look like
+   * it began when the drive began.
+   */
+  workFirstStart: string | null
+  /** True once at least one work segment exists (travel alone doesn't count). */
+  hasWorkStarted: boolean
   /** Wall-clock span from first start to last end (or now if still running). */
   totalElapsedSeconds: number
   /** The currently running segment, if any. */
@@ -162,14 +170,49 @@ export function segmentSeconds(entry: JobTimeEntry, now: number = Date.now()): n
   return Math.max(0, Math.floor((end - start) / 1000))
 }
 
+/**
+ * Live seconds for one segment type, including the running segment when it is of
+ * that type. Every displayed duration goes through this single function so the
+ * big timer, the totals row, and the session list can never disagree — the
+ * original bug showed "total elapsed 20s" next to a travel timer reading 59s
+ * because the totals were frozen at fetch time while the timer ticked.
+ */
+export function liveSecondsOfType(
+  summary: JobTimeSummary | null,
+  type: TimeEntryType,
+  now: number = Date.now(),
+): number {
+  if (!summary) return 0
+  const base =
+    type === 'work' ? summary.workSeconds : type === 'break' ? summary.breakSeconds : summary.travelSeconds
+  const running =
+    summary.openEntry && summary.openEntry.entryType === type ? segmentSeconds(summary.openEntry, now) : 0
+  return base + running
+}
+
 /** Live total work seconds for a summary, including the running segment. */
 export function liveWorkSeconds(summary: JobTimeSummary | null, now: number = Date.now()): number {
-  if (!summary) return 0
-  const running =
-    summary.openEntry && summary.openEntry.entryType === 'work'
-      ? segmentSeconds(summary.openEntry, now)
-      : 0
-  return summary.workSeconds + running
+  return liveSecondsOfType(summary, 'work', now)
+}
+
+export function liveTravelSeconds(summary: JobTimeSummary | null, now: number = Date.now()): number {
+  return liveSecondsOfType(summary, 'travel', now)
+}
+
+export function liveBreakSeconds(summary: JobTimeSummary | null, now: number = Date.now()): number {
+  return liveSecondsOfType(summary, 'break', now)
+}
+
+/**
+ * Wall-clock span from the first segment start to now (or to the last end when
+ * nothing is running). Derived from the span rather than by adding the buckets,
+ * so overlapping segments can never be double-counted.
+ */
+export function liveTotalElapsedSeconds(summary: JobTimeSummary | null, now: number = Date.now()): number {
+  if (!summary || !summary.firstStart) return 0
+  const start = new Date(summary.firstStart).getTime()
+  const end = summary.isRunning ? now : summary.lastEnd ? new Date(summary.lastEnd).getTime() : start
+  return Math.max(0, Math.floor((end - start) / 1000))
 }
 
 /** HH:MM:SS for the big timer readout. */
@@ -205,6 +248,7 @@ function buildSummary(entries: JobTimeEntry[], nameByKey: Record<string, string>
   let openEntry: JobTimeEntry | null = null
   let firstStart: string | null = null
   let lastEnd: string | null = null
+  let workFirstStart: string | null = null
 
   const workerMap = new Map<string, JobWorkerTime>()
 
@@ -223,6 +267,9 @@ function buildSummary(entries: JobTimeEntry[], nameByKey: Record<string, string>
 
     // Per-worker work totals (only work counts as labor).
     if (e.entryType === 'work') {
+      if (!workFirstStart || new Date(e.startTime) < new Date(workFirstStart)) {
+        workFirstStart = e.startTime
+      }
       const key = e.memberId || e.userId || 'unknown'
       const existing = workerMap.get(key)
       const secs = e.endTime ? (e.durationSeconds ?? segmentSeconds(e, now)) : segmentSeconds(e, now)
@@ -254,11 +301,14 @@ function buildSummary(entries: JobTimeEntry[], nameByKey: Record<string, string>
     travelSeconds,
     firstStart,
     lastEnd,
+    workFirstStart,
+    hasWorkStarted: workFirstStart !== null,
     totalElapsedSeconds,
     openEntry,
     isRunning,
-    // Paused = work was logged and nothing is running right now.
-    isPaused: !isRunning && (workSeconds > 0 || entries.length > 0),
+    // Paused = work has begun and nothing is running right now. Keyed off work
+    // specifically so a finished travel leg alone is not reported as "paused".
+    isPaused: !isRunning && workFirstStart !== null,
     byWorker: Array.from(workerMap.values()).sort((a, b) => b.workSeconds - a.workSeconds),
   }
 }
@@ -520,6 +570,55 @@ export interface TimerActionResult {
 }
 
 /**
+ * Atomically swaps an open travel/break segment for a work segment.
+ *
+ * Delegates to the `start_job_work_session` RPC (script 38) so the three coupled
+ * writes — close travel, open work at the same instant, advance job status —
+ * happen inside ONE database transaction. Doing this from the browser as three
+ * separate calls is what allowed the torn state in the original bug: any one of
+ * them could fail and leave travel running with no work segment.
+ *
+ * Falls back to a best-effort client-side sequence only if the RPC is missing,
+ * so an un-migrated environment still works instead of hard-failing.
+ */
+async function transitionToWorkSegment(jobId: string): Promise<TimerActionResult> {
+  const supabase = getSupabase()
+  const { error } = await supabase.rpc('start_job_work_session', { p_job_id: jobId })
+
+  if (!error) return { ok: true, error: null }
+
+  // 42883 = function does not exist -> script 38 has not been run yet.
+  const missingFn = error.code === '42883' || /start_job_work_session/i.test(error.message || '')
+  if (!missingFn) {
+    console.error('[JobTimer] Atomic start failed:', error.message)
+    return { ok: false, error: error.message }
+  }
+
+  console.warn('[JobTimer] start_job_work_session missing; run scripts/38-job-timer-atomic-transition.sql')
+  const closed = await pauseJobTimer(jobId)
+  if (!closed.ok) return closed
+
+  const actor = await getActor()
+  if (!actor) return { ok: false, error: 'Not authenticated.' }
+
+  const { error: insErr } = await supabase.from('time_entries').insert({
+    company_id: actor.companyId,
+    job_id: jobId,
+    member_id: actor.memberId,
+    user_id: actor.userId,
+    entry_type: 'work',
+    start_time: new Date().toISOString(),
+    created_by: actor.userId,
+  })
+  if (insErr) {
+    console.error('[JobTimer] Fallback start failed:', insErr.message)
+    return { ok: false, error: insErr.message }
+  }
+  await setJobStatusIfEarlier(jobId, 'In progress')
+  return { ok: true, error: null }
+}
+
+/**
  * Starts (or resumes) timing a job.
  *
  * Idempotent: if a segment for THIS job is already running, it succeeds without
@@ -545,9 +644,28 @@ export async function startJobTimer(
   }
 
   if (active) {
-    // Already running on this same job -> treat as success (double-tap safe).
-    if (active.jobId === jobId) return { ok: true, error: null }
-    if (!opts.force) return { ok: false, error: 'ALREADY_ACTIVE', conflict: active }
+    if (active.jobId === jobId) {
+      // Same job, same segment type -> genuine no-op (double-tap safe).
+      if (active.entry.entryType === entryType) return { ok: true, error: null }
+
+      // Same job, DIFFERENT type -> this is a real transition, e.g. the user is
+      // on the way and just pressed "Start Job". Previously this returned early
+      // and reported success while leaving travel open and never creating the
+      // work segment, so the UI stayed orange and work time never accrued.
+      // Hand the whole thing to the atomic RPC (script 38) so closing travel,
+      // opening work at the same instant, and moving the status either all
+      // commit together or not at all.
+      if (entryType === 'work') {
+        return transitionToWorkSegment(jobId)
+      }
+
+      // Any other type change (e.g. work -> travel): close the open segment
+      // first so the one-open-per-user index cannot reject the insert.
+      const closed = await pauseJobTimer(jobId)
+      if (!closed.ok) return closed
+    } else if (!opts.force) {
+      return { ok: false, error: 'ALREADY_ACTIVE', conflict: active }
+    }
   }
 
   const { error } = await supabase.from('time_entries').insert({
