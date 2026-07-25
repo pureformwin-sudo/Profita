@@ -429,7 +429,53 @@ export async function getJobTimerStates(
   return out
 }
 
-/** Total work seconds logged by the current user today (dashboard stat). */
+/**
+ * The current user's tracked work time today, split so callers can render a
+ * live-ticking value without double counting:
+ *   - closedSeconds: finished segments (fixed)
+ *   - openStartedAt:  ISO start of the still-running segment, if any
+ * Total now = closedSeconds + (now - openStartedAt).
+ */
+export async function getMyWorkTimeToday(): Promise<{ closedSeconds: number; openStartedAt: string | null }> {
+  const supabase = getSupabase()
+  const actor = await getActor()
+  if (!actor) return { closedSeconds: 0, openStartedAt: null }
+
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+
+  const orFilter = actor.memberId
+    ? `user_id.eq.${actor.userId},member_id.eq.${actor.memberId}`
+    : `user_id.eq.${actor.userId}`
+
+  const { data, error } = await supabase
+    .from('time_entries')
+    .select('entry_type, start_time, end_time, duration_seconds, duration_minutes')
+    .gte('start_time', start.toISOString())
+    .or(orFilter)
+
+  if (error) {
+    if (!isMissingTable(error)) console.error('[JobTimer] Failed to load today hours:', error.message)
+    return { closedSeconds: 0, openStartedAt: null }
+  }
+
+  let closedSeconds = 0
+  let openStartedAt: string | null = null
+
+  for (const r of (data || []) as any[]) {
+    if ((r.entry_type || 'work') !== 'work') continue
+    if (!r.end_time) {
+      // Keep the earliest open segment (there should only ever be one).
+      if (!openStartedAt || new Date(r.start_time) < new Date(openStartedAt)) openStartedAt = r.start_time
+      continue
+    }
+    closedSeconds += r.duration_seconds != null ? Number(r.duration_seconds) : Number(r.duration_minutes || 0) * 60
+  }
+
+  return { closedSeconds, openStartedAt }
+}
+
+/** Total work seconds logged by the current user today, as a single number. */
 export async function getMyWorkSecondsToday(): Promise<number> {
   const supabase = getSupabase()
   const actor = await getActor()

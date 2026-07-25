@@ -717,6 +717,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
+                          <JobTimerBadge jobId={job.id} />
                           <span className="text-sm font-semibold">${job.price.toLocaleString()}</span>
                           <Badge variant="outline" className={cn('text-xs capitalize', statusStyles[job.status as keyof typeof statusStyles])}>
                             {job.status?.replace('_', ' ')}
