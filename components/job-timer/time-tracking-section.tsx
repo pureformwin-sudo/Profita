@@ -29,14 +29,21 @@ import {
   type TimeEntryType,
 } from '@/lib/job-timer-storage'
 import { useNow } from '@/lib/job-timer-context'
+import { usePermissions } from '@/lib/permissions-context'
 
 interface TimeTrackingSectionProps {
   jobId: string
-  /** Managers/owners can add and correct entries. */
+  /**
+   * Override who may add/correct entries. When omitted, permission is derived
+   * from the signed-in user's role (owners and admins only), so the section is
+   * safe to drop in anywhere without plumbing props through.
+   */
   canEdit?: boolean
   /** Members selectable when attributing a manual entry. */
   members?: { id: string; name: string }[]
   refreshKey?: number
+  /** Called after a manual add/edit/delete changes recorded time. */
+  onRefresh?: () => void
 }
 
 function toLocalInput(iso: string): string {
@@ -52,7 +59,17 @@ function formatClock(iso: string | null): string {
 
 const typeLabels: Record<TimeEntryType, string> = { work: 'Work', break: 'Break', travel: 'Travel' }
 
-export function TimeTrackingSection({ jobId, canEdit = false, members = [], refreshKey }: TimeTrackingSectionProps) {
+export function TimeTrackingSection({
+  jobId,
+  canEdit: canEditProp,
+  members = [],
+  refreshKey,
+  onRefresh,
+}: TimeTrackingSectionProps) {
+  // Only owners/admins may correct time. Crew see a read-only history.
+  const { isAdmin } = usePermissions()
+  const canEdit = canEditProp ?? isAdmin
+
   const [summary, setSummary] = useState<JobTimeSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [tableMissing, setTableMissing] = useState(false)
@@ -141,6 +158,7 @@ export function TimeTrackingSection({ jobId, canEdit = false, members = [], refr
       setShowDialog(false)
       setEditing(null)
       await load()
+      onRefresh?.()
     } finally {
       setSaving(false)
     }
@@ -154,6 +172,7 @@ export function TimeTrackingSection({ jobId, canEdit = false, members = [], refr
     }
     toast.success('Time entry removed')
     await load()
+    onRefresh?.()
   }
 
   if (tableMissing) {

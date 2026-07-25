@@ -24,7 +24,7 @@ import { toast } from 'sonner'
 import { 
   Phone, Mail, MapPin, Navigation, MessageSquare, Calendar, Clock, 
   DollarSign, FileText, Receipt, User, ChevronDown, ChevronRight,
-  Play, CheckCircle, Truck, MoreVertical, Pencil, Camera,
+  MoreVertical, Pencil, Camera,
   Upload, Paperclip, Tag, ArrowLeft, Copy, Archive, Eye, Repeat
 } from 'lucide-react'
 import {
@@ -166,19 +166,6 @@ export function JobDetailDrawer({
       onRefresh()
     } catch (error) {
       toast.error('Failed to update status')
-    }
-    setIsProcessing(false)
-  }
-
-  const handleCompleteAndInvoice = async () => {
-    setIsProcessing(true)
-    try {
-      await onStatusChange(job.id, 'Completed')
-      await onCreateInvoice(job.id)
-      toast.success('Job completed and invoice created!')
-      onRefresh()
-    } catch (error) {
-      toast.error('Failed to complete job')
     }
     setIsProcessing(false)
   }
@@ -567,6 +554,22 @@ export function JobDetailDrawer({
                       )}
                     </div>
                   )}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Time Tracking Section */}
+            <Collapsible open={expandedSections.includes('time')} onOpenChange={() => toggleSection('time')}>
+              <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">Time Tracking</span>
+                </div>
+                {expandedSections.includes('time') ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="px-4 py-3 bg-muted/20 border-b border-border">
+                  <TimeTrackingSection jobId={job.id} onRefresh={onRefresh} />
                 </div>
               </CollapsibleContent>
             </Collapsible>

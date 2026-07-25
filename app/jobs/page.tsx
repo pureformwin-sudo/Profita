@@ -17,6 +17,7 @@ import { Job, JobType, JobStatus, Customer, PaymentMethod, Employee, JobWorker, 
 import type { PaymentMethod as PaymentsPaymentMethod } from '@/lib/payments-types'
 import { Switch } from '@/components/ui/switch'
 import { JobDetailDrawer } from '@/components/job-detail-drawer'
+import { JobTimerBadge } from '@/components/job-timer/job-timer-badge'
 import { TakePaymentSheet, type TakePaymentContext } from '@/components/payments/take-payment-sheet'
 import { notifyJobCreated, notifyJobCompleted, notifyPaymentReceived, notifyPaymentNeedsDeposit } from '@/lib/in-app-notifications'
 import { formatDate } from '@/lib/utils-finance'
@@ -1543,9 +1544,12 @@ onClick={() => openJobDetail(job)}
                   <div className="lg:hidden flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                     <div className="flex flex-col items-end gap-1">
                       <span className="font-semibold">${job.price.toLocaleString()}</span>
+                      <JobTimerBadge jobId={job.id} />
                       <span className={cn(
                         "text-[10px] font-medium px-2 py-0.5 rounded",
                         job.status === 'Scheduled' && "bg-blue-500/10 text-blue-500",
+                        job.status === 'On the way' && "bg-amber-500/10 text-amber-500",
+                        job.status === 'In progress' && "bg-purple-500/10 text-purple-500",
                         job.status === 'Completed' && "bg-amber-500/10 text-amber-500",
                         job.status === 'Paid' && "bg-emerald-500/10 text-emerald-500"
                       )}>
@@ -1627,15 +1631,18 @@ onClick={() => openJobDetail(job)}
                   </div>
                   
                   {/* Desktop: Status column */}
-                  <div className="hidden lg:flex justify-center">
+                  <div className="hidden lg:flex flex-col items-center justify-center gap-1">
                     <span className={cn(
                       "text-xs font-medium px-2.5 py-1 rounded w-[80px] text-center",
                       job.status === 'Scheduled' && "bg-blue-500/10 text-blue-500",
+                      job.status === 'On the way' && "bg-amber-500/10 text-amber-500",
+                      job.status === 'In progress' && "bg-purple-500/10 text-purple-500",
                       job.status === 'Completed' && "bg-amber-500/10 text-amber-500",
                       job.status === 'Paid' && "bg-emerald-500/10 text-emerald-500"
                     )}>
                       {job.status}
                     </span>
+                    <JobTimerBadge jobId={job.id} />
                   </div>
                   
                   {/* Actions */}
