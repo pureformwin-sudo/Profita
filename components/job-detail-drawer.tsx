@@ -24,7 +24,7 @@ import { toast } from 'sonner'
 import { 
   Phone, Mail, MapPin, Navigation, MessageSquare, Calendar, Clock, 
   DollarSign, FileText, Receipt, User, ChevronDown, ChevronRight,
-  Play, CheckCircle, Truck, MoreVertical, Pencil, Camera,
+  MoreVertical, Pencil, Camera,
   Upload, Paperclip, Tag, ArrowLeft, Copy, Archive, Eye, Repeat
 } from 'lucide-react'
 import {
@@ -35,6 +35,8 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { JobPhotosTab } from '@/components/job-photos/job-photos-tab'
+import { JobTimerPanel } from '@/components/job-timer/job-timer-panel'
+import { TimeTrackingSection } from '@/components/job-timer/time-tracking-section'
 
 const paymentMethods: PaymentMethod[] = ['Cash', 'Card', 'Check', 'Zelle', 'Venmo', 'Other']
 
@@ -168,19 +170,6 @@ export function JobDetailDrawer({
     setIsProcessing(false)
   }
 
-  const handleCompleteAndInvoice = async () => {
-    setIsProcessing(true)
-    try {
-      await onStatusChange(job.id, 'Completed')
-      await onCreateInvoice(job.id)
-      toast.success('Job completed and invoice created!')
-      onRefresh()
-    } catch (error) {
-      toast.error('Failed to complete job')
-    }
-    setIsProcessing(false)
-  }
-
   const openPaymentModal = () => {
     setPaymentAmount(String(remainingBalance.toFixed(2)))
     setPaymentMethod('Cash')
@@ -214,23 +203,28 @@ export function JobDetailDrawer({
   // Status-based primary actions
   const getPrimaryAction = () => {
     switch (job.status) {
+      // Scheduled / On the way / In progress are all driven by the job timer,
+      // which owns Start Job, Pause, Resume and Finish Job.
       case 'Scheduled':
-        return (
-          <Button onClick={() => handleStatusAction('On the way')} className="w-full" size="lg" disabled={isProcessing}>
-            <Truck className="h-4 w-4 mr-2" /> Start Job
-          </Button>
-        )
       case 'On the way':
-        return (
-          <Button onClick={() => handleStatusAction('In progress')} className="w-full" size="lg" disabled={isProcessing}>
-            <Play className="h-4 w-4 mr-2" /> Mark Arrived
-          </Button>
-        )
       case 'In progress':
         return (
-          <Button onClick={handleCompleteAndInvoice} className="w-full" size="lg" disabled={isProcessing}>
-            <CheckCircle className="h-4 w-4 mr-2" /> Complete Job
-          </Button>
+          <JobTimerPanel
+            job={job}
+            onRefresh={onRefresh}
+            // Preserve the existing completion workflow: finishing a job still
+            // creates the invoice, but never marks it paid.
+            onCompleted={async () => {
+              if (!invoice) {
+                try {
+                  await onCreateInvoice(job.id)
+                } catch {
+                  toast.error('Job completed, but the invoice could not be created')
+                }
+              }
+              onRefresh()
+            }}
+          />
         )
       case 'Completed':
         return (
@@ -560,6 +554,22 @@ export function JobDetailDrawer({
                       )}
                     </div>
                   )}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* Time Tracking Section */}
+            <Collapsible open={expandedSections.includes('time')} onOpenChange={() => toggleSection('time')}>
+              <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">Time Tracking</span>
+                </div>
+                {expandedSections.includes('time') ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="px-4 py-3 bg-muted/20 border-b border-border">
+                  <TimeTrackingSection jobId={job.id} onRefresh={onRefresh} />
                 </div>
               </CollapsibleContent>
             </Collapsible>

@@ -52,6 +52,8 @@ import {
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { useOnboardingCheck } from '@/hooks/use-onboarding-check'
+import { HoursTodayCard } from '@/components/job-timer/hours-today-card'
+import { JobTimerBadge } from '@/components/job-timer/job-timer-badge'
 
 interface Invoice {
   id: string
@@ -650,7 +652,10 @@ export default function DashboardPage() {
   {/* Left Column */}
   <div className="lg:col-span-2 space-y-6">
   
-  {/* Today's Activity */}
+          {/* Time tracked today (live while a job timer is running) */}
+            <HoursTodayCard />
+
+          {/* Today's Activity */}
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="flex items-center justify-between p-4 border-b border-border">
                 <div className="flex items-center gap-2">
@@ -717,6 +722,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
+                          <JobTimerBadge jobId={job.id} />
                           <span className="text-sm font-semibold">${job.price.toLocaleString()}</span>
                           <Badge variant="outline" className={cn('text-xs capitalize', statusStyles[job.status as keyof typeof statusStyles])}>
                             {job.status?.replace('_', ' ')}

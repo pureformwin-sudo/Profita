@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { AuthProvider } from '@/components/auth-provider'
 import { ModeProvider } from '@/lib/mode-context'
 import { PermissionsProvider } from '@/lib/permissions-context'
+import { JobTimerProvider } from '@/lib/job-timer-context'
 import { ApprovalGate } from '@/components/approval-gate'
 import './globals.css'
 
@@ -47,9 +48,11 @@ export default function RootLayout({
         <AuthProvider>
           <ModeProvider>
             <PermissionsProvider>
-              <ApprovalGate>
-                {children}
-</ApprovalGate>
+              <JobTimerProvider>
+                <ApprovalGate>
+                  {children}
+                </ApprovalGate>
+              </JobTimerProvider>
             </PermissionsProvider>
           </ModeProvider>
           <Toaster
