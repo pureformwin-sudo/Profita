@@ -48,6 +48,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { AskAIFloating } from '@/components/ai/ask-ai-floating'
 import { MobileBottomNav } from '@/components/mobile-bottom-nav'
 import { FeedbackButton } from '@/components/feedback-button'
+import { ActiveJobBar } from '@/components/job-timer/active-job-bar'
 
 import type { Permission } from '@/lib/permissions'
 
@@ -343,6 +344,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="min-h-[calc(100vh-3.5rem)] pb-20 lg:pb-0">
         {children}
       </main>
+
+      {/* Persistent active-job timer indicator */}
+      <ActiveJobBar />
 
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav />

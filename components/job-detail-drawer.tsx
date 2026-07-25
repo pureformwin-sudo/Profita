@@ -35,6 +35,8 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { JobPhotosTab } from '@/components/job-photos/job-photos-tab'
+import { JobTimerPanel } from '@/components/job-timer/job-timer-panel'
+import { TimeTrackingSection } from '@/components/job-timer/time-tracking-section'
 
 const paymentMethods: PaymentMethod[] = ['Cash', 'Card', 'Check', 'Zelle', 'Venmo', 'Other']
 
@@ -214,23 +216,28 @@ export function JobDetailDrawer({
   // Status-based primary actions
   const getPrimaryAction = () => {
     switch (job.status) {
+      // Scheduled / On the way / In progress are all driven by the job timer,
+      // which owns Start Job, Pause, Resume and Finish Job.
       case 'Scheduled':
-        return (
-          <Button onClick={() => handleStatusAction('On the way')} className="w-full" size="lg" disabled={isProcessing}>
-            <Truck className="h-4 w-4 mr-2" /> Start Job
-          </Button>
-        )
       case 'On the way':
-        return (
-          <Button onClick={() => handleStatusAction('In progress')} className="w-full" size="lg" disabled={isProcessing}>
-            <Play className="h-4 w-4 mr-2" /> Mark Arrived
-          </Button>
-        )
       case 'In progress':
         return (
-          <Button onClick={handleCompleteAndInvoice} className="w-full" size="lg" disabled={isProcessing}>
-            <CheckCircle className="h-4 w-4 mr-2" /> Complete Job
-          </Button>
+          <JobTimerPanel
+            job={job}
+            onRefresh={onRefresh}
+            // Preserve the existing completion workflow: finishing a job still
+            // creates the invoice, but never marks it paid.
+            onCompleted={async () => {
+              if (!invoice) {
+                try {
+                  await onCreateInvoice(job.id)
+                } catch {
+                  toast.error('Job completed, but the invoice could not be created')
+                }
+              }
+              onRefresh()
+            }}
+          />
         )
       case 'Completed':
         return (
