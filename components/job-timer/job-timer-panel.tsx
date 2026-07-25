@@ -83,9 +83,17 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
     }
   }, [loadSummary])
 
+  // ---------------------------------------------------------------------------
+  // State is RECONCILED from the stored segments, never from job.status, so the
+  // UI can't disagree with the database. Which segment is open decides
+  // everything: travel -> On the way, work -> In progress, none + work logged ->
+  // Paused. That is what guarantees the orange travel card disappears the moment
+  // the work segment exists.
+  // ---------------------------------------------------------------------------
   const isRunning = !!summary?.isRunning
   const openEntry = summary?.openEntry ?? null
   const isTravelling = isRunning && openEntry?.entryType === 'travel'
+  const isWorking = isRunning && openEntry?.entryType === 'work'
   // Only tick while something is actually running.
   const now = useNow(isRunning)
 
@@ -94,7 +102,7 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
   const travelLive = isTravelling && openEntry ? segmentSeconds(openEntry, now) : 0
 
   const hasStarted = (summary?.entries.length ?? 0) > 0
-  const isPaused = hasStarted && !isRunning && workSeconds > 0
+  const isPaused = !isRunning && !!summary?.hasWorkStarted
   const isFinished = ['Completed', 'Invoiced', 'Paid', 'Closed'].includes(job.status)
 
   const afterMutation = async () => {
@@ -217,8 +225,10 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
   return (
     <>
       <div className={cn('space-y-3', className)}>
-        {/* ---------- Not started: Start Job (+ optional On the way) ---------- */}
-        {!hasStarted && (
+        {/* ---------- Not started: Start Job (+ optional On the way) ----------
+             Also covers "drove there, then stopped travel without starting work",
+             which would otherwise render no card at all. */}
+        {!isRunning && !summary?.hasWorkStarted && (
           <div className="flex flex-col gap-2">
             <Button onClick={handleStart} size="lg" className="h-14 w-full text-base font-semibold" disabled={!!busy}>
               {busy === 'start' ? (
@@ -226,7 +236,7 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
               ) : (
                 <Play className="mr-2 h-5 w-5" />
               )}
-              Start Job
+              {busy === 'start' ? 'Starting Job...' : 'Start Job'}
             </Button>
             {job.status === 'Scheduled' && (
               <Button onClick={handleTravel} variant="outline" className="h-11 w-full" disabled={!!busy}>
@@ -235,8 +245,13 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
                 ) : (
                   <Truck className="mr-2 h-4 w-4" />
                 )}
-                On the way
+                {busy === 'travel' ? 'Marking...' : 'On the way'}
               </Button>
+            )}
+            {hasStarted && summary && summary.travelSeconds > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {formatDuration(summary.travelSeconds)} travel already logged.
+              </p>
             )}
           </div>
         )}
@@ -256,13 +271,13 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
             </p>
             <Button onClick={handleStart} size="lg" className="mt-3 h-12 w-full font-semibold" disabled={!!busy}>
               {busy === 'start' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Play className="mr-2 h-5 w-5" />}
-              Start Job
+              {busy === 'start' ? 'Starting Job...' : 'Start Job'}
             </Button>
           </div>
         )}
 
         {/* ---------- Running work ---------- */}
-        {isRunning && !isTravelling && (
+        {isWorking && (
           <div className="rounded-xl border border-primary/40 bg-primary/5 p-4">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
@@ -275,7 +290,8 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
               {formatTimer(workSeconds)}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              Started at {formatClock(summary?.firstStart ?? null)}
+              Started at {formatClock(summary?.workFirstStart ?? null)}
+              {summary && summary.travelSeconds > 0 && ` · ${formatDuration(summary.travelSeconds)} travel`}
               {summary && summary.breakSeconds > 0 && ` · ${formatDuration(summary.breakSeconds)} break`}
             </p>
             <div className="mt-3 flex gap-2">
@@ -285,7 +301,7 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
                 ) : (
                   <Pause className="mr-2 h-4 w-4" />
                 )}
-                Pause
+                {busy === 'pause' ? 'Pausing...' : 'Pause'}
               </Button>
               <Button onClick={() => setShowFinish(true)} size="lg" className="h-12 flex-1 font-semibold" disabled={!!busy}>
                 <CheckCircle className="mr-2 h-4 w-4" />
@@ -315,7 +331,7 @@ export function JobTimerPanel({ job, onCompleted, onRefresh, className }: JobTim
                 ) : (
                   <Play className="mr-2 h-4 w-4" />
                 )}
-                Resume Job
+                {busy === 'resume' ? 'Resuming...' : 'Resume Job'}
               </Button>
               <Button onClick={() => setShowFinish(true)} variant="outline" size="lg" className="h-12 flex-1" disabled={!!busy}>
                 <CheckCircle className="mr-2 h-4 w-4" />

@@ -20,6 +20,9 @@ import {
   deleteTimeEntry,
   formatDuration,
   getJobTimeSummary,
+  liveBreakSeconds,
+  liveTotalElapsedSeconds,
+  liveTravelSeconds,
   liveWorkSeconds,
   segmentSeconds,
   toHours,
@@ -30,6 +33,7 @@ import {
 } from '@/lib/job-timer-storage'
 import { useNow } from '@/lib/job-timer-context'
 import { usePermissions } from '@/lib/permissions-context'
+import { cn } from '@/lib/utils'
 
 interface TimeTrackingSectionProps {
   jobId: string
@@ -58,6 +62,19 @@ function formatClock(iso: string | null): string {
 }
 
 const typeLabels: Record<TimeEntryType, string> = { work: 'Work', break: 'Break', travel: 'Travel' }
+
+/** Accents applied only to the RUNNING row, so the active session is obvious. */
+const typeAccents: Record<TimeEntryType, string> = {
+  work: 'border-emerald-500/50 bg-emerald-500/10',
+  travel: 'border-amber-500/50 bg-amber-500/10',
+  break: 'border-yellow-500/50 bg-yellow-500/10',
+}
+
+const typeBadges: Record<TimeEntryType, string> = {
+  work: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400',
+  travel: 'bg-amber-500/20 text-amber-700 dark:text-amber-400',
+  break: 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400',
+}
 
 export function TimeTrackingSection({
   jobId,
@@ -97,7 +114,12 @@ export function TimeTrackingSection({
 
   const isRunning = !!summary?.isRunning
   const now = useNow(isRunning)
+  // All four totals come from the same live derivation as the big timer, so the
+  // summary can never lag behind the readout the way it did before.
   const workSeconds = liveWorkSeconds(summary, now)
+  const travelSeconds = liveTravelSeconds(summary, now)
+  const breakSeconds = liveBreakSeconds(summary, now)
+  const totalElapsed = liveTotalElapsedSeconds(summary, now)
 
   const openDialog = (entry: JobTimeEntry | null) => {
     setEditing(entry)
@@ -211,18 +233,22 @@ export function TimeTrackingSection({
       {hasEntries && summary && (
         <>
           {/* Totals */}
-          <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/50 p-3">
+          <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-3 sm:grid-cols-4">
             <div>
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Work time</p>
-              <p className="text-base font-bold tabular-nums">{formatDuration(workSeconds)}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Travel</p>
+              <p className="text-base font-bold tabular-nums">{formatDuration(travelSeconds)}</p>
             </div>
-            <div className="border-x border-border px-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Work</p>
+              <p className="text-base font-bold tabular-nums text-emerald-600">{formatDuration(workSeconds)}</p>
+            </div>
+            <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Breaks</p>
-              <p className="text-base font-bold tabular-nums">{formatDuration(summary.breakSeconds)}</p>
+              <p className="text-base font-bold tabular-nums">{formatDuration(breakSeconds)}</p>
             </div>
-            <div className="pl-1">
+            <div>
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total elapsed</p>
-              <p className="text-base font-bold tabular-nums">{formatDuration(summary.totalElapsedSeconds)}</p>
+              <p className="text-base font-bold tabular-nums">{formatDuration(totalElapsed)}</p>
             </div>
           </div>
 
@@ -233,11 +259,6 @@ export function TimeTrackingSection({
             {!isRunning && summary.lastEnd && (
               <span className="text-muted-foreground">
                 Ended <span className="font-medium text-foreground">{formatClock(summary.lastEnd)}</span>
-              </span>
-            )}
-            {summary.travelSeconds > 0 && (
-              <span className="text-muted-foreground">
-                Travel <span className="font-medium text-foreground">{formatDuration(summary.travelSeconds)}</span>
               </span>
             )}
             <span className="text-muted-foreground">
@@ -285,17 +306,26 @@ export function TimeTrackingSection({
             </div>
             <div className="space-y-1.5">
               {summary.entries.map((e) => {
-                const secs = e.endTime ? (e.durationSeconds ?? 0) : segmentSeconds(e, now)
+                // Closed rows fall back to a computed span if the trigger has not
+                // written duration_seconds yet; open rows tick live.
+                const secs = e.endTime ? (e.durationSeconds ?? segmentSeconds(e, now)) : segmentSeconds(e, now)
+                const isOpen = !e.endTime
                 return (
                   <div
                     key={e.id}
-                    className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-2 text-sm"
+                    className={cn(
+                      'flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 text-sm',
+                      isOpen ? typeAccents[e.entryType] : 'border-border',
+                    )}
                   >
                     <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="tabular-nums">
                       {formatClock(e.startTime)} – {e.endTime ? formatClock(e.endTime) : 'running'}
                     </span>
-                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                    <Badge
+                      variant="secondary"
+                      className={cn('h-5 px-1.5 text-[10px]', isOpen && typeBadges[e.entryType])}
+                    >
                       {typeLabels[e.entryType]}
                     </Badge>
                     {e.isManual && (
