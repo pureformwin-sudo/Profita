@@ -25,6 +25,7 @@ import { OverviewTab } from '@/components/finances/overview-tab'
 import { TransactionsTab } from '@/components/finances/transactions-tab'
 import { ReviewTab } from '@/components/finances/review-tab'
 import { ReportsTab } from '@/components/finances/reports-tab'
+import { MethodsTab } from '@/components/finances/methods-tab'
 import { needsReview } from '@/components/finances/finance-utils'
 
 function FinancesContent() {
@@ -100,6 +101,7 @@ function FinancesContent() {
               <Badge variant="secondary" className="h-5 min-w-5 px-1 text-xs">{reviewCount}</Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="methods">Methods</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
@@ -111,6 +113,11 @@ function FinancesContent() {
         </TabsContent>
         <TabsContent value="review" className="mt-6">
           <ReviewTab expenses={expenses} onRefresh={loadData} />
+        </TabsContent>
+        <TabsContent value="methods" className="mt-6">
+          {/* Self-loading: reads pre-aggregated SQL totals rather than the
+              already-fetched income array, so it scales past this page's rows. */}
+          <MethodsTab />
         </TabsContent>
         <TabsContent value="reports" className="mt-6">
           <ReportsTab expenses={expenses} income={income} />
