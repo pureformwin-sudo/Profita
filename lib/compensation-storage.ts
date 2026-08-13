@@ -122,9 +122,21 @@ export async function getCompensationHistory(
 }
 
 /**
- * Record a rate change. The SQL trigger closes the previous open row at
- * effectiveFrom - 1 day, so history stays non-overlapping without the client
- * having to sequence two writes and risk a torn state.
+ * Record a rate change.
+ *
+ * The BEFORE INSERT trigger `comp_history_close_previous_trg` (migration 41)
+ * closes the previous open row, so history stays non-overlapping without the
+ * client sequencing two writes and risking a torn state.
+ *
+ * Never set effective_to from here - the trigger owns it, and three cases
+ * depend on that:
+ *   - forward-dated: previous row closed at effectiveFrom - 1 day
+ *   - backdated: previous row removed if it starts on/after the new date,
+ *     since closing it would produce an inverted date range
+ *   - same-day correction: previous row replaced rather than duplicated
+ *
+ * Migration 40 shipped the unique index enforcing one open row per employee
+ * but not this trigger, so every rate change failed with a duplicate key.
  */
 export async function addCompensationChange(input: {
   employeeId: string
