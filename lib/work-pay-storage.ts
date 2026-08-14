@@ -217,7 +217,7 @@ export async function getWorkEntries(filters: WorkEntryFilters = {}): Promise<Wo
     .from('employee_work_entries')
     .select(
       `id,employee_id,work_date,comp_type,start_time,end_time,break_minutes,
-       hours_override,rate_snapshot,flat_amount,computed_amount,notes,entry_method,locked_at,
+       hours_override,rate_snapshot,computed_amount,notes,entry_method,locked_at,
        work_entry_jobs(job_id,amount_kind,amount),
        employee_earnings(id,amount)`,
     )
@@ -288,7 +288,8 @@ export async function getWorkEntries(filters: WorkEntryFilters = {}): Promise<Wo
       hoursOverride: r.hours_override === null ? null : num(r.hours_override),
       hours: computeDisplayHours(r),
       rateSnapshot: r.rate_snapshot === null ? null : num(r.rate_snapshot),
-      flatAmount: r.flat_amount === null ? null : num(r.flat_amount),
+      // There is no flat_amount column: for a flat entry the amount IS computed_amount.
+    flatAmount: r.comp_type === 'flat' ? num(r.computed_amount) : null,
       computedAmount: computed,
       notes: r.notes,
       entryMethod: (r.entry_method ?? 'manual') as 'manual' | 'clock',
@@ -332,7 +333,7 @@ export async function getPayments(employeeId?: string): Promise<PaymentRecord[]>
   let query = supabase
     .from('employee_payments')
     .select(
-      `id,employee_id,amount,paid_on,method,note,is_opening,pay_period_start,pay_period_end,
+      `id,employee_id,amount,paid_on,method,memo,is_opening,pay_period_start,pay_period_end,
        payment_allocations(amount)`,
     )
     .order('paid_on', { ascending: false })
@@ -366,7 +367,7 @@ export async function getPayments(employeeId?: string): Promise<PaymentRecord[]>
       amount,
       paidOn: r.paid_on,
       method: r.method,
-      note: r.note,
+      note: r.memo,
       isOpening: !!r.is_opening,
       payPeriodStart: r.pay_period_start,
       payPeriodEnd: r.pay_period_end,
@@ -456,8 +457,8 @@ export async function addWorkEntry(input: AddWorkEntryInput): Promise<string> {
     p_employee_id: input.employeeId,
     p_work_date: input.workDate,
     p_comp_type: input.compType,
-    p_start_time: input.startTime ?? null,
-    p_end_time: input.endTime ?? null,
+    p_start: input.startTime ?? null,
+    p_end: input.endTime ?? null,
     p_break_minutes: input.breakMinutes ?? 0,
     p_hours_override: input.hoursOverride ?? null,
     p_rate: input.rate ?? null,
@@ -497,7 +498,7 @@ export async function recordPayment(input: RecordPaymentInput): Promise<string> 
     p_amount: input.amount,
     p_paid_on: input.paidOn,
     p_method: input.method,
-    p_note: input.note ?? null,
+      p_memo: input.note ?? null,
     p_pay_period_start: input.payPeriodStart ?? null,
     p_pay_period_end: input.payPeriodEnd ?? null,
     p_expense_id: null,
