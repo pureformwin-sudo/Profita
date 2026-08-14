@@ -742,7 +742,7 @@ export function WorkPayTab() {
             </Card>
           ) : (
             payments.map((p) => (
-              <Card key={p.id} className="flex flex-wrap items-center gap-3 p-4">
+              <Card key={p.id} className="flex flex-row flex-wrap items-center gap-3 p-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{p.employeeName}</span>
