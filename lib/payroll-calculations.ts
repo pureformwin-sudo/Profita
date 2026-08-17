@@ -190,14 +190,21 @@ export async function getPayrollPeriodSummary(
     byEmployeeMap.get(entry.employeeId)!.push(entry)
   }
 
-  // Get employee details
+  // Get employee details.
+  // BUGFIX: this filtered employees by company_id, but company_id is NULL on 12
+  // of 13 live employee rows, so the lookup returned almost nothing and every
+  // pay type/rate silently fell back to the 'per_job' / $0 defaults below.
+  // Fetching by the employee ids actually present is both correct and narrower;
+  // RLS still scopes the rows to the caller's company.
   const supabase = getSupabase()
-  const companyId = await getUserCompanyId()
-  
-  const { data: employees } = await supabase
-    .from('employees')
-    .select('id, name, pay_type, pay_rate')
-    .eq('company_id', companyId)
+  const employeeIds = Array.from(byEmployeeMap.keys()).filter(Boolean)
+
+  const { data: employees } = employeeIds.length
+    ? await supabase
+        .from('employees')
+        .select('id, name, pay_type, pay_rate')
+        .in('id', employeeIds)
+    : { data: [] as any[] }
 
   const employeeMap = new Map<string, any>()
   for (const emp of employees || []) {
@@ -328,11 +335,16 @@ export async function getTimeEntrySummary(options?: {
       start_time,
       end_time,
       duration_minutes,
+      duration_seconds,
       created_at,
       company_members:member_id (name, user_id)
     `)
     .eq('company_id', companyId)
-    .eq('entry_type', 'clock')
+    // BUGFIX: this filtered entry_type = 'clock', but the job timer only ever
+    // writes 'work' | 'travel' | 'break', so it matched zero rows and every
+    // payroll hour total silently came back as 0. Breaks are unpaid, so they
+    // are excluded here rather than filtered out later.
+    .in('entry_type', ['work', 'travel'])
 
   if (options?.memberId) {
     query = query.eq('member_id', options.memberId)
@@ -354,6 +366,24 @@ export async function getTimeEntrySummary(options?: {
     entries = entries.filter(e => e.start_time <= options.endDate!)
   }
 
+  // The timer has written duration_seconds on some rows and duration_minutes on
+  // others, and a still-running entry has neither. Resolve one trustworthy
+  // minute value per entry instead of reading a single column that may be null.
+  const entryMinutes = (e: any): number => {
+    if (typeof e.duration_minutes === 'number' && e.duration_minutes > 0) {
+      return e.duration_minutes
+    }
+    if (typeof e.duration_seconds === 'number' && e.duration_seconds > 0) {
+      return e.duration_seconds / 60
+    }
+    if (e.start_time && e.end_time) {
+      const ms = new Date(e.end_time).getTime() - new Date(e.start_time).getTime()
+      if (Number.isFinite(ms) && ms > 0) return ms / 60000
+    }
+    // Still running: contributes nothing rather than a bogus negative.
+    return 0
+  }
+
   // Group by member
   const byMember = new Map<string, any[]>()
   for (const entry of entries) {
@@ -368,7 +398,7 @@ export async function getTimeEntrySummary(options?: {
   const summaries: TimeEntrySummary[] = []
   for (const [memberId, memberEntries] of byMember) {
     const firstEntry = memberEntries[0]
-    const totalMinutes = memberEntries.reduce((sum, e) => sum + (e.duration_minutes || 0), 0)
+    const totalMinutes = memberEntries.reduce((sum, e) => sum + entryMinutes(e), 0)
 
     // Group by date
     const byDateMap = new Map<string, { minutes: number; entries: number }>()
@@ -378,7 +408,7 @@ export async function getTimeEntrySummary(options?: {
         byDateMap.set(date, { minutes: 0, entries: 0 })
       }
       const dayData = byDateMap.get(date)!
-      dayData.minutes += entry.duration_minutes || 0
+      dayData.minutes += entryMinutes(entry)
       dayData.entries++
     }
 

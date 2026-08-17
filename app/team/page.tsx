@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Search,
   Banknote,
+  Wallet,
   UserPlus,
   Copy,
   ExternalLink,
@@ -91,6 +92,8 @@ import {
 } from '@/lib/permissions'
 import { usePermissions, AdminOnly } from '@/lib/permissions-context'
 import { Mail, Shield, UserX, Link2, Award, Percent, AlertCircle, CheckCircle, XCircle, Settings } from 'lucide-react'
+import { HoursTab } from '@/components/team/hours-tab'
+import { WorkPayTab } from '@/components/team/work-pay-tab'
 import {
   getCommissions,
   getCommissionRules,
@@ -101,7 +104,7 @@ import {
 } from '@/lib/commissions-storage'
 import type { Commission, CommissionRule, CommissionStatus, CommissionTrigger, CommissionRateType } from '@/lib/commissions-types'
 
-type TabType = 'activity' | 'team' | 'payroll' | 'commissions' | 'users'
+type TabType = 'activity' | 'team' | 'payroll' | 'workpay' | 'hours' | 'commissions' | 'users'
 
 function TeamPageContent() {
   const searchParams = useSearchParams()
@@ -424,6 +427,28 @@ function TeamPageContent() {
                 ${totalOwed.toLocaleString()}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => switchTab('workpay')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'workpay'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Wallet className="h-4 w-4" />
+            Work &amp; Pay
+          </button>
+          <button
+            onClick={() => switchTab('hours')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'hours'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Clock className="h-4 w-4" />
+            Hours
           </button>
           {(hasPermission('view_commissions') || hasPermission('manage_commissions')) && (
             <button 
@@ -964,6 +989,14 @@ function TeamPageContent() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Hours Tab - timer hours and accrued labor, kept separate from
+            Payroll so job_workers earnings are never double-counted. */}
+        {activeTab === 'workpay' && <WorkPayTab />}
+
+        {activeTab === 'hours' && (
+          <HoursTab employees={employees} onEmployeesChanged={loadData} />
         )}
 
         {/* Commissions Tab */}
