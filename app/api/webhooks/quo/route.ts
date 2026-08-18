@@ -59,10 +59,15 @@ export async function POST(req: NextRequest) {
   logRawPayload(body)
 
   // Quo issues a separate signing secret per webhook resource, and calls and
-  // messages are separate resources — so accept a comma-separated list and try
-  // each. A single value keeps working unchanged.
-  const secrets = (process.env.QUO_WEBHOOK_SIGNING_SECRET ?? '')
-    .split(',')
+  // messages are separate resources. Both secrets are read from their own env
+  // vars (a single var can also hold a comma-separated list) and every candidate
+  // is tried, so one endpoint can serve both webhooks.
+  const secrets = [
+    process.env.QUO_WEBHOOK_SIGNING_SECRET,
+    process.env.QUO_CALL_WEBHOOK_SIGNING_SECRET,
+  ]
+    .filter(Boolean)
+    .flatMap((v) => (v as string).split(','))
     .map((s) => s.trim())
     .filter(Boolean)
   if (secrets.length > 0) {
