@@ -58,8 +58,14 @@ export async function POST(req: NextRequest) {
 
   logRawPayload(body)
 
-  const secret = process.env.QUO_WEBHOOK_SIGNING_SECRET
-  if (secret) {
+  // Quo issues a separate signing secret per webhook resource, and calls and
+  // messages are separate resources — so accept a comma-separated list and try
+  // each. A single value keeps working unchanged.
+  const secrets = (process.env.QUO_WEBHOOK_SIGNING_SECRET ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (secrets.length > 0) {
     const result = verifyQuoSignature({
       body,
       svixId: req.headers.get('svix-id') ?? req.headers.get('webhook-id'),
@@ -67,7 +73,7 @@ export async function POST(req: NextRequest) {
         req.headers.get('svix-timestamp') ?? req.headers.get('webhook-timestamp'),
       svixSignature:
         req.headers.get('svix-signature') ?? req.headers.get('webhook-signature'),
-      secret,
+      secret: secrets,
     })
     if (!result.ok) {
       console.error('[Quo Webhook] Signature verification failed:', result.reason)
