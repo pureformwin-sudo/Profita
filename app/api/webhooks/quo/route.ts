@@ -6,9 +6,10 @@ import {
   parseQuoEvent,
   verifyQuoSignature,
 } from '@/lib/quo-webhook'
+import { lookupQuoContactName } from '@/lib/quo-api'
 
 /**
- * Quo webhook receiver.
+ * Quo (formerly OpenPhone) webhook receiver.
  *
  * Contract we hold ourselves to:
  *  1. NEVER lose a delivery. We persist the raw payload first; matching a company,
@@ -25,6 +26,24 @@ export const runtime = 'nodejs'
 // Never cache a webhook.
 export const dynamic = 'force-dynamic'
 
+/**
+ * Log the FULL raw payload once per cold start so field names can be confirmed
+ * against real traffic before the mapping is finalized. Set QUO_LOG_RAW=true to
+ * log every event instead of just the first.
+ */
+let hasLoggedRawPayload = false
+
+function logRawPayload(body: string) {
+  const always = process.env.QUO_LOG_RAW === 'true'
+  if (hasLoggedRawPayload && !always) return
+  hasLoggedRawPayload = true
+  console.log(
+    '[Quo Webhook] ===== RAW INCOMING PAYLOAD (verify field names below) =====',
+  )
+  console.log(body)
+  console.log('[Quo Webhook] ===== END RAW PAYLOAD =====')
+}
+
 function getSupabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,6 +55,8 @@ function getSupabaseAdmin() {
 export async function POST(req: NextRequest) {
   // Read the raw body BEFORE parsing — signature is computed over exact bytes.
   const body = await req.text()
+
+  logRawPayload(body)
 
   const secret = process.env.QUO_WEBHOOK_SECRET
   if (secret) {
@@ -78,41 +99,90 @@ export async function POST(req: NextRequest) {
 
   const supabase = getSupabaseAdmin()
 
-  // ── Resolve tenant from Quo's orgId via companies.settings->>'quo_org_id'
+  // ── Resolve tenant from Quo's orgId via companies.settings->>'quo_org_id'.
+  // Needed for both scoping and the NOT NULL user_id on any row we create.
   let companyId: string | null = null
+  let ownerUserId: string | null = null
   if (parsed.quoOrgId) {
     const { data: company } = await supabase
       .from('companies')
-      .select('id')
+      .select('id, owner_user_id')
       .eq('settings->>quo_org_id', parsed.quoOrgId)
       .maybeSingle()
     companyId = company?.id ?? null
+    ownerUserId = company?.owner_user_id ?? null
   }
 
-  // ── Best-effort match to an existing lead or customer by phone.
-  // Both stay null when unmatched; the event is still recorded.
+  // ── Match by phone: lead first, then customer.
+  //
+  // Phone formats are inconsistent in this DB ('(559) 930-5181' vs '5599602286',
+  // and leads.phone uses '' rather than NULL), so compare on the last 10 digits
+  // instead of raw equality. Results are ordered by created_at so a number that
+  // matches several records always resolves to the SAME (oldest) one rather than
+  // attaching randomly.
   let leadId: string | null = null
   let customerId: string | null = null
+  let createdLead = false
 
   if (parsed.contactNumber) {
-    // Phone formats are inconsistent in this DB ('(559) 930-5181' vs '5599602286'),
-    // so compare on the last 10 digits rather than raw equality.
     const suffix = parsed.contactNumber
 
+    // Scope to the company but ALSO include rows with a NULL company_id: most
+    // legacy leads in this database predate multi-tenancy (9 of 10 have no
+    // company_id). A strict `.eq('company_id', ...)` hides them, which would make
+    // the webhook auto-create duplicate leads for contacts that already exist.
+    const scope = companyId ? `company_id.eq.${companyId},company_id.is.null` : null
+
+    const leadQuery = supabase
+      .from('leads')
+      .select('id, phone, created_at')
+      .order('created_at', { ascending: true })
+    if (scope) leadQuery.or(scope)
+    const { data: leads } = await leadQuery.limit(1000)
+    leadId = leads?.find((l) => normalizePhone(l.phone) === suffix)?.id ?? null
+
+    // Check customers too — not to link the activity, but to avoid creating a
+    // duplicate lead for someone who is already a customer.
     const customerQuery = supabase
       .from('customers')
-      .select('id, phone')
+      .select('id, phone, created_at')
       .not('phone', 'is', null)
-    if (companyId) customerQuery.eq('company_id', companyId)
-    const { data: customers } = await customerQuery.limit(500)
+      .order('created_at', { ascending: true })
+    if (scope) customerQuery.or(scope)
+    const { data: customers } = await customerQuery.limit(1000)
     customerId =
       customers?.find((c) => normalizePhone(c.phone) === suffix)?.id ?? null
 
-    if (!customerId) {
-      const leadQuery = supabase.from('leads').select('id, phone')
-      if (companyId) leadQuery.eq('company_id', companyId)
-      const { data: leads } = await leadQuery.limit(500)
-      leadId = leads?.find((l) => normalizePhone(l.phone) === suffix)?.id ?? null
+    // ── Auto-create a lead only when NEITHER a lead nor a customer matches.
+    // Requires a resolved company (leads.user_id is NOT NULL); an unmapped org
+    // still gets its event stored, just unlinked.
+    if (!leadId && !customerId && companyId && ownerUserId) {
+      const name = (await lookupQuoContactName(
+        parsed.fromNumber ?? parsed.toNumber ?? suffix,
+      )) ?? `Quo contact ${suffix.slice(0, 3)}-${suffix.slice(3, 6)}-${suffix.slice(6)}`
+
+      const { data: newLead, error: leadError } = await supabase
+        .from('leads')
+        .insert({
+          company_id: companyId,
+          user_id: ownerUserId,
+          name,
+          phone: parsed.fromNumber ?? suffix,
+          // Both values are CHECK-constrained; 'phone'/'callback' are valid.
+          source: 'phone',
+          status: 'callback',
+          notes: `Auto-created from inbound Quo ${parsed.kind}.`,
+        })
+        .select('id')
+        .single()
+
+      if (leadError) {
+        // Non-fatal: still store the event, just unlinked.
+        console.error('[Quo Webhook] Could not auto-create lead:', leadError.message)
+      } else if (newLead) {
+        leadId = newLead.id
+        createdLead = true
+      }
     }
   }
 
@@ -150,69 +220,65 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Storage failed' }, { status: 500 })
   }
 
-  // ── Mirror onto the lead timeline so calls/texts show up in the D2D flow.
+  // ── Log onto the lead timeline so calls/texts show up in the D2D flow.
   // Only when it resolved to a lead, and only once per event.
   const activityType = activityTypeFor(parsed.kind)
-  if (leadId && activityType && companyId && !saved?.lead_activity_id) {
-    // lead_activities.user_id is NOT NULL and a webhook has no session user, so
-    // attribute the activity to the company owner.
-    const { data: company } = await supabase
-      .from('companies')
-      .select('owner_user_id')
-      .eq('id', companyId)
-      .maybeSingle()
+  if (leadId && activityType && companyId && ownerUserId && !saved?.lead_activity_id) {
+    // Column set is subject / notes / metadata — there is no `description`.
+    const dir = parsed.direction ?? 'incoming'
+    const subject =
+      parsed.kind === 'call'
+        ? `${dir === 'outgoing' ? 'Outgoing' : 'Incoming'} call via Quo${
+            parsed.status ? ` (${parsed.status})` : ''
+          }`
+        : `${dir === 'outgoing' ? 'Outgoing' : 'Incoming'} text via Quo`
 
-    if (company?.owner_user_id) {
-      // Column set is subject / notes / metadata — there is no `description`.
-      const dir = parsed.direction ?? 'incoming'
-      const subject =
-        parsed.kind === 'call'
-          ? `${dir === 'outgoing' ? 'Outgoing' : 'Incoming'} call via Quo${
-              parsed.status ? ` (${parsed.status})` : ''
-            }`
-          : `${dir === 'outgoing' ? 'Outgoing' : 'Incoming'} text via Quo`
+    const notes =
+      parsed.kind === 'call'
+        ? parsed.durationSeconds != null
+          ? `Duration: ${parsed.durationSeconds}s`
+          : null
+        : (parsed.body ?? null)
 
-      const notes =
-        parsed.kind === 'call'
-          ? parsed.durationSeconds != null
-            ? `Duration: ${parsed.durationSeconds}s`
-            : null
-          : (parsed.body ?? null)
+    const { data: activity, error: activityError } = await supabase
+      .from('lead_activities')
+      .insert({
+        lead_id: leadId,
+        company_id: companyId,
+        // lead_activities.user_id is NOT NULL and a webhook has no session user,
+        // so attribute the activity to the company owner.
+        user_id: ownerUserId,
+        activity_type: activityType,
+        subject,
+        notes,
+        // NOTE: lead_activities has no `occurred_at` column (only created_at), so
+        // Quo's own event timestamp is preserved in metadata instead.
+        metadata: {
+          source: 'quo',
+          quo_event_id: parsed.quoEventId,
+          event_type: parsed.eventType,
+          direction: parsed.direction,
+          occurred_at: parsed.occurredAt,
+          from: parsed.fromNumber,
+          to: parsed.toNumber,
+          duration_seconds: parsed.durationSeconds,
+          recording_url: parsed.recordingUrl,
+        },
+      })
+      .select('id')
+      .single()
 
-      const { data: activity, error: activityError } = await supabase
-        .from('lead_activities')
-        .insert({
-          lead_id: leadId,
-          company_id: companyId,
-          user_id: company.owner_user_id,
-          activity_type: activityType,
-          subject,
-          notes,
-          metadata: {
-            source: 'quo',
-            quo_event_id: parsed.quoEventId,
-            event_type: parsed.eventType,
-            direction: parsed.direction,
-            from: parsed.fromNumber,
-            to: parsed.toNumber,
-            recording_url: parsed.recordingUrl,
-          },
-        })
-        .select('id')
-        .single()
-
-      if (activityError) {
-        // Non-fatal: the event is already stored, so don't trigger a retry.
-        console.error(
-          '[Quo Webhook] Could not create lead activity:',
-          activityError.message,
-        )
-      } else if (activity) {
-        await supabase
-          .from('quo_events')
-          .update({ lead_activity_id: activity.id })
-          .eq('id', saved.id)
-      }
+    if (activityError) {
+      // Non-fatal: the event is already stored, so don't trigger a retry.
+      console.error(
+        '[Quo Webhook] Could not create lead activity:',
+        activityError.message,
+      )
+    } else if (activity) {
+      await supabase
+        .from('quo_events')
+        .update({ lead_activity_id: activity.id })
+        .eq('id', saved.id)
     }
   }
 
@@ -221,7 +287,7 @@ export async function POST(req: NextRequest) {
     stored: true,
     eventId: parsed.quoEventId,
     kind: parsed.kind,
-    linked: { companyId, leadId, customerId },
+    linked: { companyId, leadId, customerId, createdLead },
   })
 }
 
