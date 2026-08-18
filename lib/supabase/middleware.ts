@@ -11,6 +11,10 @@ export async function updateSession(request: NextRequest) {
     || pathname.startsWith('/pay')
     || pathname.startsWith('/reports')
     || pathname.startsWith('/api/job-photos/public-file')
+    // Inbound webhooks are machine-to-machine: third parties (Stripe, Quo) send no
+    // session cookie, so without this they get 307'd to /login and every delivery
+    // fails. Each route authenticates itself by verifying the provider's signature.
+    || pathname.startsWith('/api/webhooks/')
 
   let supabaseResponse = NextResponse.next({ request })
 
