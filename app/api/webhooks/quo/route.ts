@@ -58,16 +58,7 @@ export async function POST(req: NextRequest) {
 
   logRawPayload(body)
 
-  // Prefer QUO_WEBHOOK_SIGNING_SECRET. The older QUO_WEBHOOK_SECRET is kept only
-  // as a fallback so deliveries don't break mid-migration; once the new variable
-  // is set it wins outright, and the old one should be deleted.
-  const secret =
-    process.env.QUO_WEBHOOK_SIGNING_SECRET || process.env.QUO_WEBHOOK_SECRET
-  if (process.env.QUO_WEBHOOK_SIGNING_SECRET == null && process.env.QUO_WEBHOOK_SECRET) {
-    console.warn(
-      '[Quo Webhook] Using deprecated QUO_WEBHOOK_SECRET. Set QUO_WEBHOOK_SIGNING_SECRET and remove the old variable.',
-    )
-  }
+  const secret = process.env.QUO_WEBHOOK_SIGNING_SECRET
   if (secret) {
     const result = verifyQuoSignature({
       body,
