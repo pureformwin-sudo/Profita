@@ -58,8 +58,19 @@ export async function POST(req: NextRequest) {
 
   logRawPayload(body)
 
-  const secret = process.env.QUO_WEBHOOK_SIGNING_SECRET
-  if (secret) {
+  // Quo issues a separate signing secret per webhook resource, and calls and
+  // messages are separate resources. Both secrets are read from their own env
+  // vars (a single var can also hold a comma-separated list) and every candidate
+  // is tried, so one endpoint can serve both webhooks.
+  const secrets = [
+    process.env.QUO_WEBHOOK_SIGNING_SECRET,
+    process.env.QUO_CALL_WEBHOOK_SIGNING_SECRET,
+  ]
+    .filter(Boolean)
+    .flatMap((v) => (v as string).split(','))
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (secrets.length > 0) {
     const result = verifyQuoSignature({
       body,
       svixId: req.headers.get('svix-id') ?? req.headers.get('webhook-id'),
@@ -67,7 +78,7 @@ export async function POST(req: NextRequest) {
         req.headers.get('svix-timestamp') ?? req.headers.get('webhook-timestamp'),
       svixSignature:
         req.headers.get('svix-signature') ?? req.headers.get('webhook-signature'),
-      secret,
+      secret: secrets,
     })
     if (!result.ok) {
       console.error('[Quo Webhook] Signature verification failed:', result.reason)
@@ -270,6 +281,71 @@ export async function POST(req: NextRequest) {
           : null
         : (parsed.body ?? null)
 
+    // One physical call emits several events (call.completed, then
+    // call.recording.completed) with DIFFERENT event ids but the same object id.
+    // Event-id idempotency can't catch that, so look for an existing row for this
+    // same call and enrich it instead of logging the call twice.
+    let existingActivityId: string | null = null
+    if (parsed.kind === 'call' && parsed.objectId) {
+      const { data: prior } = await supabase
+        .from('lead_activities')
+        .select('id')
+        .eq('lead_id', leadId)
+        .eq('metadata->>quo_object_id', parsed.objectId)
+        .limit(1)
+        .maybeSingle()
+      existingActivityId = prior?.id ?? null
+    }
+
+    if (existingActivityId) {
+      // Merge in whatever this later event added (recording URL, final duration,
+      // terminal status) without creating a second timeline entry.
+      const { data: prior } = await supabase
+        .from('lead_activities')
+        .select('metadata, notes')
+        .eq('id', existingActivityId)
+        .single()
+      const priorMeta = (prior?.metadata ?? {}) as Record<string, unknown>
+
+      await supabase
+        .from('lead_activities')
+        .update({
+          subject,
+          notes: notes ?? prior?.notes ?? null,
+          metadata: {
+            ...priorMeta,
+            duration_seconds:
+              parsed.durationSeconds ?? (priorMeta.duration_seconds as number | null),
+            recording_url:
+              parsed.recordingUrl ?? (priorMeta.recording_url as string | null),
+            // keep a trail of every event that contributed to this one row
+            quo_event_ids: [
+              ...new Set([
+                ...((priorMeta.quo_event_ids as string[] | undefined) ?? [
+                  priorMeta.quo_event_id as string,
+                ]),
+                parsed.quoEventId,
+              ]),
+            ].filter(Boolean),
+          },
+        })
+        .eq('id', existingActivityId)
+
+      await supabase
+        .from('quo_events')
+        .update({ lead_activity_id: existingActivityId })
+        .eq('id', saved.id)
+
+      return NextResponse.json({
+        received: true,
+        stored: true,
+        eventId: parsed.quoEventId,
+        kind: parsed.kind,
+        mergedIntoExistingActivity: true,
+        linked: { companyId, leadId, customerId, createdLead },
+      })
+    }
+
     const { data: activity, error: activityError } = await supabase
       .from('lead_activities')
       .insert({
@@ -286,6 +362,8 @@ export async function POST(req: NextRequest) {
         metadata: {
           source: 'quo',
           quo_event_id: parsed.quoEventId,
+          // stable across the multiple events one call emits — used to dedupe
+          quo_object_id: parsed.objectId,
           event_type: parsed.eventType,
           direction: parsed.direction,
           occurred_at: parsed.occurredAt,

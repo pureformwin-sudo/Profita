@@ -16,6 +16,13 @@ export type QuoDirection = 'incoming' | 'outgoing' | null
 
 export interface ParsedQuoEvent {
   quoEventId: string
+  /**
+   * Id of the underlying call/message resource, which is STABLE across events.
+   * One physical call emits both `call.completed` and `call.recording.completed`
+   * with different event ids but the same object id, so this is what prevents a
+   * single call being logged twice on the lead timeline.
+   */
+  objectId: string | null
   eventType: string
   kind: QuoKind
   direction: QuoDirection
@@ -62,7 +69,12 @@ export function verifyQuoSignature(opts: {
   svixId: string | null
   svixTimestamp: string | null
   svixSignature: string | null
-  secret: string
+  /**
+   * One or more signing secrets. Quo models calls and messages as SEPARATE
+   * webhook resources (POST /v1/webhooks/calls vs /v1/webhooks/messages), and
+   * each one is issued its own secret — so verifying both requires trying each.
+   */
+  secret: string | string[]
   /** reject events older than this many seconds (replay protection) */
   toleranceSeconds?: number
   now?: number
@@ -84,18 +96,10 @@ export function verifyQuoSignature(opts: {
     return { ok: false, reason: 'timestamp outside tolerance' }
   }
 
-  const raw = secret.startsWith('whsec_') ? secret.slice('whsec_'.length) : secret
-  let key: Buffer
-  try {
-    key = Buffer.from(raw, 'base64')
-  } catch {
-    return { ok: false, reason: 'malformed secret' }
-  }
-
-  const expected = crypto
-    .createHmac('sha256', key)
-    .update(`${svixId}.${svixTimestamp}.${body}`)
-    .digest('base64')
+  const secrets = (Array.isArray(secret) ? secret : [secret])
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (secrets.length === 0) return { ok: false, reason: 'no secret configured' }
 
   // Header may hold several versioned sigs: "v1,<sigA> v1,<sigB>"
   const provided = svixSignature
@@ -104,9 +108,30 @@ export function verifyQuoSignature(opts: {
     .filter(Boolean)
     .map((part) => (part.includes(',') ? part.slice(part.indexOf(',') + 1) : part))
 
-  for (const sig of provided) {
-    if (safeEqual(sig, expected)) return { ok: true }
+  let sawUsableSecret = false
+  for (const candidate of secrets) {
+    const raw = candidate.startsWith('whsec_')
+      ? candidate.slice('whsec_'.length)
+      : candidate
+    let key: Buffer
+    try {
+      key = Buffer.from(raw, 'base64')
+    } catch {
+      continue // try the next secret rather than failing outright
+    }
+    sawUsableSecret = true
+
+    const expected = crypto
+      .createHmac('sha256', key)
+      .update(`${svixId}.${svixTimestamp}.${body}`)
+      .digest('base64')
+
+    for (const sig of provided) {
+      if (safeEqual(sig, expected)) return { ok: true }
+    }
   }
+
+  if (!sawUsableSecret) return { ok: false, reason: 'malformed secret' }
   return { ok: false, reason: 'no matching signature' }
 }
 
@@ -177,8 +202,9 @@ export function parseQuoEvent(payload: any): ParsedQuoEvent | null {
   const counterparty = direction === 'outgoing' ? toNumber : fromNumber
 
   return {
-    quoEventId,
-    eventType,
+  quoEventId,
+  objectId: firstString(obj.id, obj.callId, obj.messageId),
+  eventType,
     kind,
     direction,
     status: firstString(obj.status, data.status),
