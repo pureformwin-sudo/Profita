@@ -99,11 +99,41 @@ export async function POST(req: NextRequest) {
 
   const supabase = getSupabaseAdmin()
 
-  // ── Resolve tenant from Quo's orgId via companies.settings->>'quo_org_id'.
-  // Needed for both scoping and the NOT NULL user_id on any row we create.
+  // ── Resolve tenant. Needed for scoping and for the NOT NULL user_id on new rows.
+  //
+  // Primary key is the Quo-owned business number, NOT an org id. Quo's API exposes
+  // no organization identifier anywhere, and its dashboard test payloads omit
+  // context.orgId entirely — so an org-id-only lookup can never resolve for test
+  // sends and is undiscoverable for real ones. The business number is present on
+  // every payload (it is whichever side of from/to is not the contact) and is
+  // readable from GET /v1/phone-numbers, so it is both stable and discoverable.
+  // orgId is still honored as a fallback in case Quo populates it on live events.
   let companyId: string | null = null
   let ownerUserId: string | null = null
-  if (parsed.quoOrgId) {
+
+  const businessNumber = normalizePhone(
+    parsed.direction === 'outgoing' ? parsed.fromNumber : parsed.toNumber,
+  )
+
+  if (businessNumber) {
+    const { data: byPhone } = await supabase
+      .from('companies')
+      .select('id, owner_user_id, settings')
+      .not('settings->>quo_phone_number', 'is', null)
+      .limit(200)
+    const hit = byPhone?.find(
+      (c) =>
+        normalizePhone(
+          (c.settings as Record<string, unknown> | null)?.quo_phone_number as
+            | string
+            | null,
+        ) === businessNumber,
+    )
+    companyId = hit?.id ?? null
+    ownerUserId = hit?.owner_user_id ?? null
+  }
+
+  if (!companyId && parsed.quoOrgId) {
     const { data: company } = await supabase
       .from('companies')
       .select('id, owner_user_id')
