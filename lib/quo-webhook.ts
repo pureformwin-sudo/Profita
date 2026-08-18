@@ -16,6 +16,13 @@ export type QuoDirection = 'incoming' | 'outgoing' | null
 
 export interface ParsedQuoEvent {
   quoEventId: string
+  /**
+   * Id of the underlying call/message resource, which is STABLE across events.
+   * One physical call emits both `call.completed` and `call.recording.completed`
+   * with different event ids but the same object id, so this is what prevents a
+   * single call being logged twice on the lead timeline.
+   */
+  objectId: string | null
   eventType: string
   kind: QuoKind
   direction: QuoDirection
@@ -195,8 +202,9 @@ export function parseQuoEvent(payload: any): ParsedQuoEvent | null {
   const counterparty = direction === 'outgoing' ? toNumber : fromNumber
 
   return {
-    quoEventId,
-    eventType,
+  quoEventId,
+  objectId: firstString(obj.id, obj.callId, obj.messageId),
+  eventType,
     kind,
     direction,
     status: firstString(obj.status, data.status),
