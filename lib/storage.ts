@@ -2,6 +2,7 @@ import { createClient, getCachedUser } from '@/lib/supabase/client'
 import type { Income, Expense, Settings, ProfitAllocation, PendingIncome, UpcomingExpense, Job, Customer, BusinessProfile, Estimate, Invoice, EstimateItem, InvoiceItem, EstimateStatus, InvoiceStatus, Employee, JobWorker, PayrollSummary, PaymentSettings } from './types'
 import { DEFAULT_EXPENSE_CATEGORIES, defaultPaymentSettings } from './types'
 import { triggerCommissionForInvoicePaid, triggerCommissionForJobCreated } from './commission-triggers'
+import { fetchMyMembershipCompanyId } from './membership-rpc'
 
 // Get Supabase client (singleton, see lib/supabase/client.ts)
 function getSupabase() {

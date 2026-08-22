@@ -15,6 +15,7 @@
 // =============================================================================
 
 import { createClient, getCachedUser } from '@/lib/supabase/client'
+import { fetchMyMembership, fetchMyMembershipCompanyId } from './membership-rpc'
 
 export type TimeEntryType = 'work' | 'break' | 'travel'
 
@@ -105,8 +106,10 @@ async function getUserCompanyId(): Promise<string | null> {
     .maybeSingle()
   if (ownedCompany) return ownedCompany.id
 
-  const { data: membership } = await supabase.rpc('get_my_membership')
-  if (membership?.company_id) return membership.company_id
+  // Use the shared helper: get_my_membership RETURNS TABLE, so the raw result is
+  // an array and reading .company_id directly off it is always undefined.
+  const memberCompanyId = await fetchMyMembershipCompanyId(supabase)
+  if (memberCompanyId) return memberCompanyId
 
   return null
 }
@@ -123,7 +126,10 @@ async function getActor(): Promise<{ userId: string; memberId: string | null; co
 
   const companyId = await getUserCompanyId()
 
-  const { data: membership } = await supabase.rpc('get_my_membership')
+  // Same array-shaped RPC result as above: without normalizing, memberId was
+  // always null and the worker's name always fell through to the email prefix,
+  // so time entries lost their member attribution.
+  const membership = await fetchMyMembership(supabase)
   const memberId = membership?.id && membership.id !== 'owner' ? membership.id : null
   const name =
     membership?.name ||

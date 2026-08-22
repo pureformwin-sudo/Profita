@@ -8,6 +8,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { fetchMyMembershipCompanyId } from './membership-rpc'
 import {
   normalizePhoneE164,
   sendQuoMessage,
@@ -80,14 +81,10 @@ export async function resolveSendContext(): Promise<
   if (owned?.id) {
     companyId = owned.id
   } else {
-    // get_my_membership is RETURNS TABLE, so supabase-js hands back an ARRAY of
-    // rows, not a single object. Reading .company_id straight off the result is
-    // always undefined — which made a legitimate non-owner member look like they
-    // had no company at all. Handle both shapes so this survives the function
-    // later being changed to RETURNS a single row.
-    const { data: membership } = await supabase.rpc('get_my_membership')
-    const row = Array.isArray(membership) ? membership[0] : membership
-    companyId = (row as any)?.company_id ?? null
+    // Use the shared helper: get_my_membership RETURNS TABLE, so the raw result
+    // is an array and reading .company_id directly off it is always undefined,
+    // which made a legitimate non-owner member look like they had no company.
+    companyId = await fetchMyMembershipCompanyId(supabase)
   }
   if (!companyId) {
     return { ok: false, error: 'No company found for this user', status: 403 }

@@ -17,6 +17,7 @@ import type {
   CalculateCommissionParams,
   CalculatedCommission,
 } from './commissions-types'
+import { fetchMyMembershipCompanyId } from './membership-rpc'
 
 function getSupabase() {
   return createClient()
@@ -36,8 +37,10 @@ async function getUserCompanyId(): Promise<string | null> {
 
   if (ownedCompany) return ownedCompany.id
 
-  const { data: membership } = await supabase.rpc('get_my_membership')
-  if (membership?.company_id) return membership.company_id
+  // Use the shared helper: get_my_membership RETURNS TABLE, so the raw result is
+  // an array and reading .company_id directly off it is always undefined.
+  const memberCompanyId = await fetchMyMembershipCompanyId(supabase)
+  if (memberCompanyId) return memberCompanyId
 
   return null
 }

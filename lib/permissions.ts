@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import { normalizeMembership } from './membership-rpc'
 
 // =============================================================================
 // Role & Permission System
@@ -426,10 +427,15 @@ export async function getMyMembership(): Promise<CompanyMember | null> {
     }
   }
 
-  // Get membership record via RPC to bypass RLS
-  const { data: membership, error } = await supabase
+  // Get membership record via RPC to bypass RLS.
+  // get_my_membership RETURNS TABLE, so the raw result is an array — reading
+  // fields straight off it yielded undefined for `role`/`status`, which made
+  // every permission gate below fall back to its "no access" branch for real
+  // team members. normalizeMembership() collapses it to a single row.
+  const { data: membershipRaw, error } = await supabase
     .rpc('get_my_membership')
 
+  const membership: any = normalizeMembership(membershipRaw)
   if (error || !membership) return null
 
   return {
