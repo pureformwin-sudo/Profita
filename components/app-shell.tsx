@@ -24,6 +24,7 @@ import {
   Sparkles,
   Repeat,
   Zap,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -65,6 +66,7 @@ const navItems: NavItem[] = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/jobs', label: 'Jobs', icon: Briefcase },
   { href: '/customers', label: 'Customers', icon: Users },
+  { href: '/messages', label: 'Messages', icon: MessageSquare },
   { href: '/invoices', label: 'Invoices', icon: FileText, requiredPermission: 'view_invoices' },
   { href: '/transactions', label: 'Finances', icon: Receipt, requiredPermission: 'view_finances' },
   { href: '/analytics', label: 'Reports', icon: BarChart3, requiredPermission: 'view_reports' },

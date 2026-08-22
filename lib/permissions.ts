@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import { normalizeMembership } from './membership-rpc'
 
 // =============================================================================
 // Role & Permission System
@@ -331,12 +332,20 @@ export async function getCompany(): Promise<Company | null> {
 
   // If no company exists for this user, check if they're a team member
   if (!ownedCompany) {
-    // Use RPC to get membership (bypasses RLS)
+    // Use RPC to get membership (bypasses RLS).
+    // get_my_membership is RETURNS TABLE, so supabase-js gives back an ARRAY of
+    // rows. Reading `.company_id` straight off it is always undefined, which
+    // silently skipped this whole branch and sent every invited team member to
+    // the create-a-new-company path below — that is where the orphaned empty
+    // "My Company" rows came from. Normalize to a single row first, and support
+    // both shapes so this keeps working if the function ever returns one row.
     const { data: membership } = await supabase.rpc('get_my_membership')
+    const membershipRow: any = Array.isArray(membership) ? membership[0] : membership
 
-    if (membership?.company_id) {
+    if (membershipRow?.company_id) {
       // User is a team member, fetch the company they belong to
-      const { data: memberCompany } = await supabase.rpc('get_company_by_id', { p_company_id: membership.company_id })
+      const { data: memberCompanyRaw } = await supabase.rpc('get_company_by_id', { p_company_id: membershipRow.company_id })
+      const memberCompany: any = Array.isArray(memberCompanyRaw) ? memberCompanyRaw[0] : memberCompanyRaw
       
       if (memberCompany) {
         return {
@@ -418,10 +427,15 @@ export async function getMyMembership(): Promise<CompanyMember | null> {
     }
   }
 
-  // Get membership record via RPC to bypass RLS
-  const { data: membership, error } = await supabase
+  // Get membership record via RPC to bypass RLS.
+  // get_my_membership RETURNS TABLE, so the raw result is an array — reading
+  // fields straight off it yielded undefined for `role`/`status`, which made
+  // every permission gate below fall back to its "no access" branch for real
+  // team members. normalizeMembership() collapses it to a single row.
+  const { data: membershipRaw, error } = await supabase
     .rpc('get_my_membership')
 
+  const membership: any = normalizeMembership(membershipRaw)
   if (error || !membership) return null
 
   return {

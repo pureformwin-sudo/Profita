@@ -8,6 +8,7 @@
 
 import { createClient } from '@/lib/supabase/client'
 import type { PaymentProvider, PaymentType } from './payments-types'
+import { fetchMyMembershipCompanyId } from './membership-rpc'
 
 export type PaymentSessionStatus = 'pending' | 'completed' | 'cancelled'
 
@@ -65,8 +66,9 @@ async function getCompanyId(supabase: ReturnType<typeof createClient>, userId: s
     .eq('owner_user_id', userId)
     .maybeSingle()
   if (owned) return owned.id
-  const { data: membership } = await supabase.rpc('get_my_membership')
-  return membership?.company_id ?? null
+  // Use the shared helper: get_my_membership RETURNS TABLE, so the raw result is
+  // an array and reading .company_id directly off it is always undefined.
+  return await fetchMyMembershipCompanyId(supabase)
 }
 
 /** Create a pending payment session. Returns the session or null on error. */
