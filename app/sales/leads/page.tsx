@@ -36,6 +36,7 @@ import {
   type LeadStatus,
 } from '@/lib/leads-storage'
 import { cn } from '@/lib/utils'
+import { LogCallSheet } from '@/components/log-call-sheet'
 import { STATUS_CONFIG } from '../map/page'
 import { convertLeadToCustomer, checkLeadConversionStatus } from '@/lib/workflow-conversions'
 import { UserPlus, ExternalLink } from 'lucide-react'
@@ -63,6 +64,8 @@ export default function SalesLeadsPage() {
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all')
   const [showFilterSheet, setShowFilterSheet] = useState(false)
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  // Lead whose call we're prompting the rep to log, after the tel: handoff.
+  const [callLogLead, setCallLogLead] = useState<Lead | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -293,6 +296,12 @@ export default function SalesLeadsPage() {
                 <div className="grid grid-cols-4 gap-2">
                   <a
                     href={lead.phone ? `tel:${lead.phone}` : undefined}
+                    onClick={() => {
+                      // The tel: navigation still happens natively and hands off
+                      // to the device dialer; we just queue the log prompt so it
+                      // is waiting when the rep returns to the app.
+                      if (lead.phone) setCallLogLead(lead)
+                    }}
                     className={cn(
                       'rounded-xl bg-zinc-800 border border-zinc-700 p-3 flex flex-col items-center gap-1.5 text-xs font-medium transition-all',
                       lead.phone
@@ -404,10 +413,36 @@ export default function SalesLeadsPage() {
                 setLeads((prev) => prev.map((l) => l.id === updatedLead.id ? updatedLead : l))
                 setSelectedLead(updatedLead)
               }}
+              onRequestCallLog={() => setCallLogLead(selectedLead)}
             />
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Log call prompt, shown after handing off to the device dialer */}
+      {callLogLead && (
+        <LogCallSheet
+          open={!!callLogLead}
+          onOpenChange={(open) => !open && setCallLogLead(null)}
+          leadId={callLogLead.id}
+          leadName={callLogLead.name || 'this lead'}
+          repEmployeeId={callLogLead.rep_employee_id}
+          onLogged={() => {
+            // Mirror the write the sheet just persisted (last_contact_at, and
+            // updated_at via updateLead) so the card's "x ago" refreshes without
+            // a full reload.
+            const now = new Date().toISOString()
+            setLeads((prev) =>
+              prev.map((l) =>
+                l.id === callLogLead.id
+                  ? { ...l, last_contact_at: now, updated_at: now }
+                  : l,
+              ),
+            )
+            setCallLogLead(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -418,11 +453,13 @@ function LeadDetailSheet({
   onStatusChange,
   onClose,
   onLeadUpdated,
+  onRequestCallLog,
 }: {
   lead: Lead
   onStatusChange: (status: LeadStatus) => void
   onClose: () => void
   onLeadUpdated: (lead: Lead) => void
+  onRequestCallLog: () => void
 }) {
   const [converting, setConverting] = useState(false)
   const [conversionStatus, setConversionStatus] = useState<{ converted: boolean; customerId?: string } | null>(null)
@@ -494,7 +531,10 @@ function LeadDetailSheet({
             variant="outline"
             size="sm"
             className="flex-1 gap-2 border-zinc-700"
-            onClick={() => window.open(`tel:${lead.phone}`)}
+            onClick={() => {
+              window.open(`tel:${lead.phone}`)
+              onRequestCallLog()
+            }}
           >
             <Phone className="h-4 w-4 text-emerald-400" />
             Call

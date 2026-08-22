@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { ACTIVITY_TYPES } from '@/lib/lead-activity-types'
 import type { ActivityType, LeadActivity } from '@/lib/lead-activity-types'
 
 // Re-export types for consumers
@@ -39,7 +40,7 @@ async function getUserCompanyId(): Promise<string | null> {
 export async function getLeadActivities(leadId: string): Promise<LeadActivity[]> {
   const supabase = await createClient()
   const { data, error } = await supabase
-    .from('lead_activity')
+    .from('lead_activities')
     .select(`
       *,
       employees:rep_employee_id(name)
@@ -60,7 +61,13 @@ export async function getLeadActivities(leadId: string): Promise<LeadActivity[]>
 }
 
 export async function logActivity(input: {
-  ownerUserId: string
+  /**
+   * Optional. Prefer omitting this: the acting user is derived from the session
+   * server-side. Attributing an activity to the *lead's* owner (often the admin
+   * who imported it) rather than the rep who actually did the work produces a
+   * misleading audit trail, and a client-supplied id can't be trusted anyway.
+   */
+  ownerUserId?: string
   leadId: string
   repEmployeeId: string | null
   activityType: ActivityType
@@ -72,10 +79,16 @@ export async function logActivity(input: {
   const supabase = await createClient()
   const companyId = await getUserCompanyId()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  const actingUserId = user?.id ?? input.ownerUserId
+  if (!actingUserId) {
+    return { data: null, error: 'Not signed in' }
+  }
+
   const { data, error } = await supabase
-    .from('lead_activity')
+    .from('lead_activities')
     .insert({
-      user_id: input.ownerUserId,
+      user_id: actingUserId,
       company_id: companyId,
       lead_id: input.leadId,
       rep_employee_id: input.repEmployeeId,
@@ -99,7 +112,7 @@ export async function logActivity(input: {
 
 // Log a door knock with location
 export async function logKnock(input: {
-  ownerUserId: string
+  ownerUserId?: string
   leadId: string
   repEmployeeId: string | null
   lat?: number
@@ -124,7 +137,7 @@ export async function logKnock(input: {
 
 // Log a call
 export async function logCall(input: {
-  ownerUserId: string
+  ownerUserId?: string
   leadId: string
   repEmployeeId: string | null
   duration?: number
@@ -145,9 +158,26 @@ export async function logCall(input: {
   return !error
 }
 
+// Log a voicemail (rep reached voicemail instead of the person)
+export async function logVoicemail(input: {
+  ownerUserId?: string
+  leadId: string
+  repEmployeeId: string | null
+  notes?: string
+}): Promise<boolean> {
+  const { error } = await logActivity({
+    ownerUserId: input.ownerUserId,
+    leadId: input.leadId,
+    repEmployeeId: input.repEmployeeId,
+    activityType: 'voicemail',
+    notes: input.notes,
+  })
+  return !error
+}
+
 // Log a status change
 export async function logStatusChange(input: {
-  ownerUserId: string
+  ownerUserId?: string
   leadId: string
   repEmployeeId: string | null
   oldStatus: string
@@ -173,7 +203,7 @@ export async function getRecentActivityForRep(
 ): Promise<Array<LeadActivity & { lead_name?: string; lead_address?: string }>> {
   const supabase = await createClient()
   const { data, error } = await supabase
-    .from('lead_activity')
+    .from('lead_activities')
     .select(`
       *,
       leads:lead_id(name, address)
@@ -203,36 +233,29 @@ export async function getActivityCountsForRep(
 ): Promise<Record<ActivityType, number>> {
   const supabase = await createClient()
   const { data, error } = await supabase
-    .from('lead_activity')
+    .from('lead_activities')
     .select('activity_type')
     .eq('rep_employee_id', repEmployeeId)
     .gte('created_at', startDate)
     .lte('created_at', endDate)
 
+  // Derive the zeroed map from ACTIVITY_TYPES instead of hardcoding the keys.
+  // The two literal objects that used to live here had drifted out of sync with
+  // the type (they still listed 'booked' and were missing 'voicemail'), so any
+  // new activity type silently counted as 0 forever.
+  const emptyCounts = (): Record<ActivityType, number> =>
+    ACTIVITY_TYPES.reduce(
+      (acc, t) => ({ ...acc, [t]: 0 }),
+      {} as Record<ActivityType, number>,
+    )
+
   if (error) {
+    if (error.code === '42P01') return emptyCounts()
     console.error('[lead-activity-storage] getActivityCountsForRep error:', error)
-    return {
-      knock: 0,
-      call: 0,
-      sms: 0,
-      email: 0,
-      note: 0,
-      status_change: 0,
-      quote_sent: 0,
-      booked: 0,
-    }
+    return emptyCounts()
   }
 
-  const counts: Record<ActivityType, number> = {
-    knock: 0,
-    call: 0,
-    sms: 0,
-    email: 0,
-    note: 0,
-    status_change: 0,
-    quote_sent: 0,
-    booked: 0,
-  }
+  const counts: Record<ActivityType, number> = emptyCounts()
 
   for (const row of data || []) {
     const type = row.activity_type as ActivityType
