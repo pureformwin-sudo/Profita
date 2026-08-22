@@ -261,6 +261,51 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Storage failed' }, { status: 500 })
   }
 
+  // ── Honor STOP / START replies before anything else.
+  // Carriers treat these as opt-out keywords, so an inbound "STOP" has to flip
+  // the flag even when we never resolve the sender to a CRM record. Matched on
+  // the whole trimmed body so "stop by tomorrow?" is not read as an opt-out.
+  if (parsed.kind === 'message' && (parsed.direction ?? 'incoming') === 'incoming') {
+    const text = (parsed.body ?? '').trim().toLowerCase().replace(/[.!]+$/, '')
+    const isStop = ['stop', 'unsubscribe', 'cancel', 'quit', 'end', 'stopall'].includes(text)
+    const isStart = ['start', 'unstop', 'yes', 'subscribe'].includes(text)
+
+    if ((isStop || isStart) && companyId && parsed.contactNumber) {
+      const suffix = normalizePhone(parsed.contactNumber)
+      const patch = isStop
+        ? {
+            sms_opt_out: true,
+            sms_opt_out_at: new Date().toISOString(),
+            sms_opt_out_reason: `Replied "${text}" via Quo`,
+          }
+        : { sms_opt_out: false, sms_opt_out_at: null, sms_opt_out_reason: null }
+
+      // Match on the last 10 digits, since stored numbers are formatted
+      // inconsistently and the webhook gives us E.164.
+      for (const table of ['customers', 'leads'] as const) {
+        const { data: rows } = await supabase
+          .from(table)
+          .select('id, phone')
+          .eq('company_id', companyId)
+        const matches = (rows ?? []).filter(
+          (r) => r.phone && normalizePhone(r.phone) === suffix,
+        )
+        for (const row of matches) {
+          const { error: optErr } = await supabase
+            .from(table)
+            .update(patch)
+            .eq('id', row.id)
+          if (optErr) {
+            console.error(
+              `[Quo Webhook] Failed to set opt-out on ${table} ${row.id}:`,
+              optErr.message,
+            )
+          }
+        }
+      }
+    }
+  }
+
   // ── Log onto the lead timeline so calls/texts show up in the D2D flow.
   // Only when it resolved to a lead, and only once per event.
   const activityType = activityTypeFor(parsed.kind)
