@@ -7,6 +7,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import {
   normalizePhoneE164,
   sendQuoMessage,
@@ -79,18 +80,38 @@ export async function resolveSendContext(): Promise<
   if (owned?.id) {
     companyId = owned.id
   } else {
+    // get_my_membership is RETURNS TABLE, so supabase-js hands back an ARRAY of
+    // rows, not a single object. Reading .company_id straight off the result is
+    // always undefined — which made a legitimate non-owner member look like they
+    // had no company at all. Handle both shapes so this survives the function
+    // later being changed to RETURNS a single row.
     const { data: membership } = await supabase.rpc('get_my_membership')
-    companyId = (membership as any)?.company_id ?? null
+    const row = Array.isArray(membership) ? membership[0] : membership
+    companyId = (row as any)?.company_id ?? null
   }
   if (!companyId) {
     return { ok: false, error: 'No company found for this user', status: 403 }
   }
 
-  const { data: company } = await supabase
+  // Read the company's settings with the service role, NOT the user client.
+  // RLS on `companies` is `owner_user_id = auth.uid()`, so a sales_rep or crew
+  // member cannot see the row at all — through the user client they'd get null
+  // settings and a misleading "no Quo number configured" error even though the
+  // company has one. The user is already authenticated and companyId came from
+  // their own ownership/membership above, so this only widens the read to the
+  // tenant they legitimately belong to.
+  const admin = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  )
+  const { data: company } = await admin
     .from('companies')
     .select('settings')
     .eq('id', companyId)
     .maybeSingle()
+
+  console.log('[v0] resolveSendContext companyId=', companyId, 'settingsKeys=', company?.settings ? Object.keys(company.settings as any) : null, 'quo=', (company?.settings as any)?.quo_phone_number)
 
   const configured = (company?.settings as any)?.quo_phone_number as string | undefined
   const fromNumber = normalizePhoneE164(configured)

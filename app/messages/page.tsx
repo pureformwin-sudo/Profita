@@ -71,7 +71,7 @@ export default function MessagesPage() {
   const [stats, setStats] = useState<AudienceStats | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [body, setBody] = useState('Hi {{first_name}}, this is Lucent Cleaning. ')
+  const [body, setBody] = useState('Hi {{first_name}}, ')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [appendFooter, setAppendFooter] = useState(true)
@@ -143,8 +143,12 @@ export default function MessagesPage() {
   }
 
   function preview(entry: AudienceEntry | undefined) {
-    const name = (entry?.name ?? '').trim()
-    const first = name ? name.split(/\s+/)[0] : ''
+    // With nobody selected, substituting an empty string renders "Hi ," which
+    // reads like a bug. Fall back to a clearly-fake sample name so the operator
+    // sees the real shape of the message before picking recipients. Once a
+    // recipient IS selected the preview uses their actual name.
+    const name = (entry?.name ?? '').trim() || 'Sam Rivera'
+    const first = name.split(/\s+/)[0]
     let out = body
       .replace(/\{\{\s*first_name\s*\}\}/gi, first)
       .replace(/\{\{\s*name\s*\}\}/gi, name)
@@ -309,11 +313,11 @@ export default function MessagesPage() {
                     <span className="text-muted-foreground">Nothing to preview yet.</span>
                   )}
                 </div>
-                {firstSelected && (
-                  <p className="text-xs text-muted-foreground">
-                    Shown for {firstSelected.name ?? firstSelected.normalizedPhone}
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  {firstSelected
+                    ? `Shown for ${firstSelected.name?.trim() || firstSelected.normalizedPhone}`
+                    : 'Sample name shown until you select a recipient.'}
+                </p>
               </div>
 
               <Button
