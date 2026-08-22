@@ -37,6 +37,7 @@ import {
 import { JobPhotosTab } from '@/components/job-photos/job-photos-tab'
 import { JobTimerPanel } from '@/components/job-timer/job-timer-panel'
 import { TimeTrackingSection } from '@/components/job-timer/time-tracking-section'
+import { LogContactSheet } from '@/components/log-contact-sheet'
 
 const paymentMethods: PaymentMethod[] = ['Cash', 'Card', 'Check', 'Zelle', 'Venmo', 'Other']
 
@@ -107,6 +108,8 @@ export function JobDetailDrawer({
   // Bumped after any timer action so the Time Tracking history re-reads the
   // segments and never shows a stale "running" row after a transition.
   const [timerTick, setTimerTick] = useState(0)
+  // Channel we're prompting to log, after the tel:/sms: handoff.
+  const [contactLogMode, setContactLogMode] = useState<'call' | 'text' | null>(null)
 
   if (!job || !customer) return null
 
@@ -388,12 +391,18 @@ export function JobDetailDrawer({
                     {customer.phone && (
                       <>
                         <Button size="sm" variant="outline" asChild>
-                          <a href={`tel:${customer.phone}`}>
+                          <a
+                            href={`tel:${customer.phone}`}
+                            onClick={() => setContactLogMode('call')}
+                          >
                             <Phone className="h-4 w-4 mr-1" /> Call
                           </a>
                         </Button>
                         <Button size="sm" variant="outline" asChild>
-                          <a href={`sms:${customer.phone}`}>
+                          <a
+                            href={`sms:${customer.phone}`}
+                            onClick={() => setContactLogMode('text')}
+                          >
                             <MessageSquare className="h-4 w-4 mr-1" /> Text
                           </a>
                         </Button>
@@ -855,6 +864,21 @@ export function JobDetailDrawer({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Log prompt, shown after handing off to the dialer / messages app.
+          Carries BOTH ids so the call shows on this job's timeline and in the
+          customer's history from a single row. */}
+      {contactLogMode && (
+        <LogContactSheet
+          open={!!contactLogMode}
+          onOpenChange={(next) => !next && setContactLogMode(null)}
+          mode={contactLogMode}
+          subject={{ jobId: job.id, customerId: customer.id }}
+          contactName={customer.name}
+          repEmployeeId={null}
+          onLogged={() => setContactLogMode(null)}
+        />
+      )}
     </>
   )
 }

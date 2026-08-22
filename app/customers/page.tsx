@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { getCustomers, addCustomer, deleteCustomer, updateCustomer, getIncome, getJobs, getEstimates, getInvoices } from '@/lib/storage'
 import { Customer, Income, Job, Estimate, Invoice } from '@/lib/types'
 import { toast } from 'sonner'
-import { Plus, Trash2, Phone, MapPin, Search, Pencil, Mail, MoreVertical, Users, AlertCircle, DollarSign } from 'lucide-react'
+import { Plus, Trash2, Phone, MapPin, Search, Pencil, Mail, MoreVertical, Users, AlertCircle, DollarSign, MessageSquare } from 'lucide-react'
+import { LogContactSheet } from '@/components/log-contact-sheet'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { SmartBadge } from '@/components/ai/smart-badge'
@@ -39,6 +40,11 @@ export default function CustomersPage() {
   // Customer Detail Drawer
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [showDetailDrawer, setShowDetailDrawer] = useState(false)
+  // Customer + channel we're prompting to log, after the tel:/sms: handoff.
+  const [contactLog, setContactLog] = useState<{
+    customer: Customer
+    mode: 'call' | 'text'
+  } | null>(null)
   const router = useRouter()
   
   const [formData, setFormData] = useState({
@@ -343,10 +349,26 @@ return (
                               Edit Customer
                             </DropdownMenuItem>
                             {customer.phone && (
-                              <DropdownMenuItem onClick={() => window.open(`tel:${customer.phone}`)}>
-                                <Phone className="h-4 w-4 mr-2" />
-                                Call
-                              </DropdownMenuItem>
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    window.open(`tel:${customer.phone}`)
+                                    setContactLog({ customer, mode: 'call' })
+                                  }}
+                                >
+                                  <Phone className="h-4 w-4 mr-2" />
+                                  Call
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    window.open(`sms:${customer.phone}`)
+                                    setContactLog({ customer, mode: 'text' })
+                                  }}
+                                >
+                                  <MessageSquare className="h-4 w-4 mr-2" />
+                                  Text
+                                </DropdownMenuItem>
+                              </>
                             )}
                             {customer.email && (
                               <DropdownMenuItem onClick={() => window.open(`mailto:${customer.email}`)}>
@@ -462,10 +484,26 @@ return (
                                 Edit Customer
                               </DropdownMenuItem>
                               {customer.phone && (
-                                <DropdownMenuItem onClick={() => window.open(`tel:${customer.phone}`)}>
-                                  <Phone className="h-4 w-4 mr-2" />
-                                  Call
-                                </DropdownMenuItem>
+                                <>
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      window.open(`tel:${customer.phone}`)
+                                      setContactLog({ customer, mode: 'call' })
+                                    }}
+                                  >
+                                    <Phone className="h-4 w-4 mr-2" />
+                                    Call
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      window.open(`sms:${customer.phone}`)
+                                      setContactLog({ customer, mode: 'text' })
+                                    }}
+                                  >
+                                    <MessageSquare className="h-4 w-4 mr-2" />
+                                    Text
+                                  </DropdownMenuItem>
+                                </>
                               )}
                               {customer.email && (
                                 <DropdownMenuItem onClick={() => window.open(`mailto:${customer.email}`)}>
@@ -590,6 +628,19 @@ return (
           onCreateEstimate={(customerId) => router.push(`/invoices?customerId=${customerId}&action=estimate`)}
           onCreateInvoice={(customerId) => router.push(`/invoices?customerId=${customerId}&action=invoice`)}
         />
+
+        {/* Log prompt, shown after handing off to the dialer / messages app */}
+        {contactLog && (
+          <LogContactSheet
+            open={!!contactLog}
+            onOpenChange={(open) => !open && setContactLog(null)}
+            mode={contactLog.mode}
+            subject={{ customerId: contactLog.customer.id }}
+            contactName={contactLog.customer.name || 'this customer'}
+            repEmployeeId={null}
+            onLogged={() => setContactLog(null)}
+          />
+        )}
       </div>
     </AppShell>
   )

@@ -68,7 +68,15 @@ export async function logActivity(input: {
    * misleading audit trail, and a client-supplied id can't be trusted anyway.
    */
   ownerUserId?: string
-  leadId: string
+  /**
+   * Subject of the activity. At least one of leadId / customerId / jobId must be
+   * set (enforced by the `lead_activities_has_subject` CHECK). A call made from
+   * a job passes BOTH jobId and customerId, so it shows on the job timeline and
+   * the customer's history without being logged twice.
+   */
+  leadId?: string | null
+  customerId?: string | null
+  jobId?: string | null
   repEmployeeId: string | null
   activityType: ActivityType
   oldStatus?: string
@@ -85,12 +93,20 @@ export async function logActivity(input: {
     return { data: null, error: 'Not signed in' }
   }
 
+  // Fail fast with a readable message instead of letting Postgres reject the
+  // insert with an opaque 23514 from the subject CHECK.
+  if (!input.leadId && !input.customerId && !input.jobId) {
+    return { data: null, error: 'Activity needs a lead, customer or job' }
+  }
+
   const { data, error } = await supabase
     .from('lead_activities')
     .insert({
       user_id: actingUserId,
       company_id: companyId,
-      lead_id: input.leadId,
+      lead_id: input.leadId ?? null,
+      customer_id: input.customerId ?? null,
+      job_id: input.jobId ?? null,
       rep_employee_id: input.repEmployeeId,
       activity_type: input.activityType,
       old_status: input.oldStatus || null,
@@ -135,18 +151,31 @@ export async function logKnock(input: {
   return !error
 }
 
+/**
+ * Whatever the activity is about. At least one field must be set; a job call
+ * should also carry customerId so it appears in the customer's history too.
+ */
+export type ActivitySubject = {
+  leadId?: string | null
+  customerId?: string | null
+  jobId?: string | null
+}
+
 // Log a call
-export async function logCall(input: {
-  ownerUserId?: string
-  leadId: string
-  repEmployeeId: string | null
-  duration?: number
-  outcome?: string
-  notes?: string
-}): Promise<boolean> {
+export async function logCall(
+  input: ActivitySubject & {
+    ownerUserId?: string
+    repEmployeeId: string | null
+    duration?: number
+    outcome?: string
+    notes?: string
+  },
+): Promise<boolean> {
   const { error } = await logActivity({
     ownerUserId: input.ownerUserId,
     leadId: input.leadId,
+    customerId: input.customerId,
+    jobId: input.jobId,
     repEmployeeId: input.repEmployeeId,
     activityType: 'call',
     notes: input.notes,
@@ -159,18 +188,49 @@ export async function logCall(input: {
 }
 
 // Log a voicemail (rep reached voicemail instead of the person)
-export async function logVoicemail(input: {
-  ownerUserId?: string
-  leadId: string
-  repEmployeeId: string | null
-  notes?: string
-}): Promise<boolean> {
+export async function logVoicemail(
+  input: ActivitySubject & {
+    ownerUserId?: string
+    repEmployeeId: string | null
+    notes?: string
+  },
+): Promise<boolean> {
   const { error } = await logActivity({
     ownerUserId: input.ownerUserId,
     leadId: input.leadId,
+    customerId: input.customerId,
+    jobId: input.jobId,
     repEmployeeId: input.repEmployeeId,
     activityType: 'voicemail',
     notes: input.notes,
+  })
+  return !error
+}
+
+/**
+ * Log a text that the user CONFIRMED they sent.
+ *
+ * An `sms:` handoff gives no delivery signal back to the web app, so this must
+ * only ever be called from an explicit confirmation — never fired automatically
+ * on tap, or the log fills up with texts that were never sent.
+ * Texts sent in-app through /api/quo/send are logged server-side instead.
+ */
+export async function logText(
+  input: ActivitySubject & {
+    ownerUserId?: string
+    repEmployeeId: string | null
+    notes?: string
+  },
+): Promise<boolean> {
+  const { error } = await logActivity({
+    ownerUserId: input.ownerUserId,
+    leadId: input.leadId,
+    customerId: input.customerId,
+    jobId: input.jobId,
+    repEmployeeId: input.repEmployeeId,
+    activityType: 'sms',
+    notes: input.notes,
+    metadata: { channel: 'device_handoff', confirmed: true },
   })
   return !error
 }
