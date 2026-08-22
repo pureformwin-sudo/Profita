@@ -23,9 +23,11 @@ async function getUserCompanyId(): Promise<string | null> {
 
   if (ownedCompany) return ownedCompany.id
 
-  // Check if user is a member of a company via RPC
-  const { data: membership } = await supabase.rpc('get_my_membership')
-  if (membership?.company_id) return membership.company_id
+  // Check if user is a member of a company via RPC.
+  // Must go through the shared helper: get_my_membership RETURNS TABLE, so the
+  // raw result is an array and reading .company_id off it is always undefined.
+  const memberCompanyId = await fetchMyMembershipCompanyId(supabase)
+  if (memberCompanyId) return memberCompanyId
 
   return null
 }
