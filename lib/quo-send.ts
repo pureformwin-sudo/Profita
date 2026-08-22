@@ -325,7 +325,7 @@ async function logOutbound(
 ): Promise<void> {
   try {
     const supabase = await createClient()
-    await supabase.from('quo_outbound_messages').insert({
+    const { error } = await supabase.from('quo_outbound_messages').insert({
       company_id: ctx.companyId,
       user_id: ctx.userId,
       // 'adhoc' leaves both null — recipientId is a phone number there, and
@@ -342,6 +342,19 @@ async function logOutbound(
       error: o.error ?? null,
       batch_id: batchId,
     })
+
+    // supabase-js resolves with { error } instead of throwing, so the catch
+    // below never fires for a query-level failure. Without this check an RLS
+    // denial (42501) was discarded in complete silence, which is how the audit
+    // log stayed empty while sends were being attempted. Log loudly: this table
+    // is the compliance record of what we texted, so a dropped write matters
+    // even though it must not break the send itself.
+    if (error) {
+      console.error(
+        `[Quo send] AUDIT LOG WRITE FAILED (${error.code ?? 'unknown'}): ${error.message}` +
+          ` -- status=${o.status} to=${o.normalizedPhone ?? o.phone ?? 'unknown'}`,
+      )
+    }
   } catch (err) {
     console.warn(
       '[Quo send] Failed to write audit row:',
