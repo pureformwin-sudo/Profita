@@ -111,8 +111,6 @@ export async function resolveSendContext(): Promise<
     .eq('id', companyId)
     .maybeSingle()
 
-  console.log('[v0] resolveSendContext companyId=', companyId, 'settingsKeys=', company?.settings ? Object.keys(company.settings as any) : null, 'quo=', (company?.settings as any)?.quo_phone_number)
-
   const configured = (company?.settings as any)?.quo_phone_number as string | undefined
   const fromNumber = normalizePhoneE164(configured)
   if (!fromNumber) {
