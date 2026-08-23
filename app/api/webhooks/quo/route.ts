@@ -306,15 +306,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Log onto the lead timeline so calls/texts show up in the D2D flow.
+  // ── Log onto the timeline so calls/texts show up in the D2D flow.
   //
-  // Runs when we resolved a lead OR when this event may correspond to an
-  // activity already written at send time (in-app texts, which can be
-  // customer/job-scoped with no lead). Insert below still requires a leadId,
-  // but the merge path must be reachable without one or outbound in-app texts
-  // get logged a second time.
+  // Runs when we resolved a lead or a customer, OR when this event may
+  // correspond to an activity already written at send time (in-app texts, which
+  // can be customer/job-scoped with no lead) — the merge path must be reachable
+  // without a lead or outbound in-app texts get logged a second time.
   const activityType = activityTypeFor(parsed.kind)
-  if ((leadId || parsed.objectId) && activityType && companyId && ownerUserId && !saved?.lead_activity_id) {
+  if (
+    (leadId || customerId || parsed.objectId) &&
+    activityType &&
+    companyId &&
+    ownerUserId &&
+    !saved?.lead_activity_id
+  ) {
     // Column set is subject / notes / metadata — there is no `description`.
     const dir = parsed.direction ?? 'incoming'
     const subject =
@@ -404,10 +409,59 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // No lead and no existing row to merge into: there is no subject to hang a
-    // timeline entry on (lead_activities requires lead/customer/job). The event
-    // itself is already stored in quo_events, so nothing is lost.
-    if (!leadId) {
+    // ── Resolve which subject this event belongs to.
+    //
+    // `customerId` is already matched by phone further up (it was previously
+    // used only to avoid auto-creating a duplicate lead), so a customer's
+    // call/text can hang off that directly — this is what was dropping inbound
+    // replies from customers on the floor.
+    //
+    // Job context needs more work. Quo emits no thread/conversation id, and an
+    // inbound reply arrives as its OWN message with its own object id, so a
+    // reply can never be tied to the outbound text by object id — that only
+    // dedupes events about one and the same message. The phone number is the
+    // only durable link back, so reconstruct the thread by finding the most
+    // recent outbound text to this number and inheriting whatever subject it
+    // was addressed to. That is also the only way a reply can recover job
+    // context at all, since Quo never sees a job and quo_outbound_messages
+    // doesn't store job_id either.
+    let subjectLeadId = leadId
+    let subjectCustomerId = customerId
+    let subjectJobId: string | null = null
+    let inheritedFromThread = false
+
+    // Only for inbound texts: "a reply to what we sent" is well defined for a
+    // message. Inheriting a job onto an unrelated inbound call would be a guess.
+    if (!leadId && parsed.kind === 'message' && dir === 'incoming' && parsed.contactNumber) {
+      const { data: priorOutbound } = await supabase
+        .from('lead_activities')
+        .select('lead_id, customer_id, job_id')
+        .eq('company_id', companyId)
+        .eq('activity_type', 'sms')
+        .eq('metadata->>direction', 'outgoing')
+        // to_number is stored E.164 while contactNumber is the last 10 digits.
+        .like('metadata->>to_number', `%${parsed.contactNumber}`)
+        // Bounded so a reply months later doesn't attach to a long-closed job.
+        .gte(
+          'created_at',
+          new Date(Date.now() - THREAD_LOOKBACK_MS).toISOString(),
+        )
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (priorOutbound) {
+        subjectLeadId = priorOutbound.lead_id
+        // Keep the phone-matched customer if the thread row had none.
+        subjectCustomerId = priorOutbound.customer_id ?? customerId
+        subjectJobId = priorOutbound.job_id
+        inheritedFromThread = true
+      }
+    }
+
+    // Nothing to hang a timeline entry on. The event is already stored in
+    // quo_events, so nothing is lost.
+    if (!subjectLeadId && !subjectCustomerId && !subjectJobId) {
       return NextResponse.json({
         received: true,
         stored: true,
@@ -421,7 +475,9 @@ export async function POST(req: NextRequest) {
     const { data: activity, error: activityError } = await supabase
       .from('lead_activities')
       .insert({
-        lead_id: leadId,
+        lead_id: subjectLeadId,
+        customer_id: subjectCustomerId,
+        job_id: subjectJobId,
         company_id: companyId,
         // lead_activities.user_id is NOT NULL and a webhook has no session user,
         // so attribute the activity to the company owner.
@@ -443,6 +499,9 @@ export async function POST(req: NextRequest) {
           to: parsed.toNumber,
           duration_seconds: parsed.durationSeconds,
           recording_url: parsed.recordingUrl,
+          // Records that this subject came from thread reconstruction rather
+          // than a direct phone match, so a wrong attachment is traceable.
+          subject_inherited_from_thread: inheritedFromThread || undefined,
         },
       })
       .select('id')
