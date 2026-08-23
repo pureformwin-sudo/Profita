@@ -47,7 +47,7 @@ export default function CalendarPage() {
   const [showBookingModal, setShowBookingModal] = useState(false)
   const [convertingBooking, setConvertingBooking] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const { requestLog, logSheet } = useContactLog()
+  const { requestLog, requestText, contactSheets } = useContactLog()
 
   const [formData, setFormData] = useState({
     customerId: '',
@@ -1247,14 +1247,13 @@ export default function CalendarPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => {
-                          window.open(`sms:${selectedBooking.lead_phone}`)
-                          requestLog(
-                            'text',
+                        onClick={() =>
+                          requestText(
                             { leadId: selectedBooking.lead_id, customerId: selectedBooking.customer_id },
                             selectedBooking.lead_name || selectedBooking.customer_name || '',
+                            selectedBooking.lead_phone,
                           )
-                        }}
+                        }
                       >
                         <MessageSquare className="h-4 w-4 mr-2" />
                         Text
@@ -1267,7 +1266,7 @@ export default function CalendarPage() {
           </DialogContent>
         </Dialog>
 
-        {logSheet}
+        {contactSheets}
       </div>
     </AppShell>
   )

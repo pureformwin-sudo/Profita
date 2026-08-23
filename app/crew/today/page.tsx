@@ -29,15 +29,19 @@ export default function CrewTodayPage() {
   const [tablesMissing, setTablesMissing] = useState(false)
   const [employeeId, setEmployeeId] = useState<string | null>(null)
   const [busyJobId, setBusyJobId] = useState<string | null>(null)
-  const { requestLog, logSheet } = useContactLog()
+  const { requestLog, requestText, contactSheets } = useContactLog()
 
   // Crew calls are about the job's customer, so log both ids on one row.
-  const handleContact = (mode: 'call' | 'text', job: CrewJob) =>
-    requestLog(
-      mode,
-      { jobId: job.id, customerId: job.customer_id, leadId: job.lead_id },
-      job.customer_name,
-    )
+  const handleContact = (mode: 'call' | 'text', job: CrewJob) => {
+    const subject = { jobId: job.id, customerId: job.customer_id, leadId: job.lead_id }
+    // Text sends in-app through Quo; call is still a device handoff, so it only
+    // queues the outcome prompt.
+    if (mode === 'text') {
+      requestText(subject, job.customer_name, job.customer_phone)
+      return
+    }
+    requestLog('call', subject, job.customer_name)
+  }
 
   const loadJobs = async () => {
     const today = new Date()
@@ -251,7 +255,7 @@ export default function CrewTodayPage() {
           </div>
         )}
 
-        {logSheet}
+        {contactSheets}
       </div>
     </AppShell>
   )
@@ -385,7 +389,6 @@ function JobCard({
                       </a>
                     </Button>
                     <Button
-                      asChild
                       size="sm"
                       variant="outline"
                       onClick={(e) => {
@@ -394,10 +397,8 @@ function JobCard({
                       }}
                       className="h-10 px-3"
                     >
-                      <a href={`sms:${job.customer_phone}`}>
-                        <MessageSquare className="h-4 w-4 mr-1.5" />
-                        Text
-                      </a>
+                      <MessageSquare className="h-4 w-4 mr-1.5" />
+                      Text
                     </Button>
                   </>
                 )}

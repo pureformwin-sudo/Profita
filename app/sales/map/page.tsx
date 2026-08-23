@@ -770,7 +770,7 @@ function LeadDrawer({
   const [showNotes, setShowNotes] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const config = STATUS_CONFIG[lead.status] || STATUS_CONFIG.knocked
-  const { requestLog, logSheet } = useContactLog()
+  const { requestLog, requestText, contactSheets } = useContactLog()
 
   useEffect(() => {
     setNotes(lead.notes || '')
@@ -832,8 +832,7 @@ function LeadDrawer({
           <button
             onClick={() => {
               if (!lead.phone) return
-              window.open(`sms:${lead.phone}`)
-              requestLog('text', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)
+              requestText({ leadId: lead.id }, lead.name || '', lead.phone, lead.rep_employee_id)
             }}
             disabled={!lead.phone}
             className="flex flex-col items-center gap-1 py-2 rounded-lg bg-zinc-800/50 hover:bg-zinc-700/50 transition-colors disabled:opacity-30"
@@ -987,7 +986,7 @@ function LeadDrawer({
         )}
       </div>
 
-      {logSheet}
+      {contactSheets}
     </div>
   )
 }

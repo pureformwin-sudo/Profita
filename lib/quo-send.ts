@@ -364,6 +364,56 @@ async function logOutbound(
 }
 
 /**
+ * Write the CRM timeline entry for an in-app text.
+ *
+ * Stamps `quo_message_id` / `quo_object_id` so the inbound `message.delivered`
+ * webhook recognizes this row and enriches it instead of logging the same text a
+ * second time. Never throws into the send path — the message is already gone, so
+ * a timeline failure must not surface as a send failure.
+ */
+async function logSentTextActivity(
+  ctx: SendContext,
+  o: SendOutcome,
+  subject: { leadId?: string | null; customerId?: string | null; jobId?: string | null },
+  repEmployeeId: string | null,
+): Promise<void> {
+  if (!subject.leadId && !subject.customerId && !subject.jobId) return
+
+  try {
+    const supabase = await createClient()
+    const { error } = await supabase.from('lead_activities').insert({
+      user_id: ctx.userId,
+      company_id: ctx.companyId,
+      lead_id: subject.leadId ?? null,
+      customer_id: subject.customerId ?? null,
+      job_id: subject.jobId ?? null,
+      rep_employee_id: repEmployeeId,
+      // Must be 'sms': the activity_type CHECK constraint has no 'text' value.
+      activity_type: 'sms',
+      notes: o.body ?? null,
+      metadata: {
+        channel: 'quo_in_app',
+        direction: 'outgoing',
+        to_number: o.normalizedPhone ?? o.phone ?? null,
+        quo_message_id: o.quoMessageId ?? null,
+        // Webhook dedupe matches on metadata->>quo_object_id.
+        quo_object_id: o.quoMessageId ?? null,
+      },
+    })
+    if (error) {
+      console.error(
+        `[Quo send] TIMELINE WRITE FAILED (${error.code ?? 'unknown'}): ${error.message}`,
+      )
+    }
+  } catch (err) {
+    console.warn(
+      '[Quo send] Failed to write timeline activity:',
+      err instanceof Error ? err.message : 'unknown',
+    )
+  }
+}
+
+/**
  * Send to one recipient, enforcing opt-out and logging the result.
  *
  * Returns a per-recipient outcome rather than throwing, so a bulk run keeps
@@ -373,7 +423,28 @@ export async function sendToRecipient(
   ctx: SendContext,
   recipient: RecipientInput & { optedOut?: boolean },
   template: string,
-  opts: { batchId?: string | null; appendStopFooter?: boolean } = {},
+  opts: {
+    batchId?: string | null
+    appendStopFooter?: boolean
+    /**
+     * When set, a successful send also writes a `lead_activities` row so the text
+     * lands on the CRM timeline.
+     *
+     * Opt-in rather than automatic: bulk blasts would otherwise push hundreds of
+     * entries onto lead timelines, and the inbound webhook already logs those.
+     * Single sends from a Call/Text button pass this; the Messages page does not.
+     *
+     * This is also the ONLY place job context can be recorded — Quo's webhook
+     * only ever sees a phone number, so it can never know which job a text
+     * belonged to.
+     */
+    activitySubject?: {
+      leadId?: string | null
+      customerId?: string | null
+      jobId?: string | null
+    }
+    repEmployeeId?: string | null
+  } = {},
 ): Promise<SendOutcome> {
   const base: SendOutcome = {
     recipientId: recipient.id,
@@ -411,6 +482,19 @@ export async function sendToRecipient(
     : { ...base, status: 'failed', error: result.error, body }
 
   await logOutbound(ctx, outcome, opts.batchId ?? null)
+
+  // Only successful sends reach the timeline. A failed send is already captured
+  // in the audit table; putting it on the customer's history would read as if we
+  // had contacted them.
+  if (outcome.status === 'sent' && opts.activitySubject) {
+    await logSentTextActivity(
+      ctx,
+      outcome,
+      opts.activitySubject,
+      opts.repEmployeeId ?? null,
+    )
+  }
+
   return outcome
 }
 

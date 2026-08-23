@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { TrendingUp, Sparkles, FileText, Plus, Mail, ChevronDown, X } from 'lucide-react'
+import { TrendingUp, Sparkles, FileText, Plus, Mail, ChevronDown, X, Send, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
@@ -10,7 +10,6 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import type { Customer, Job } from '@/lib/types'
-import { useContactLog } from '@/components/use-contact-log'
 
 interface UpsellTargetsCardProps {
   customers: Customer[]
@@ -39,7 +38,7 @@ export function UpsellTargetsCard({ customers, jobs, onCreateEstimate }: UpsellT
   const [selectedTarget, setSelectedTarget] = useState<UpsellTarget | null>(null)
   const [showSendOffer, setShowSendOffer] = useState(false)
   const [offerMessage, setOfferMessage] = useState('')
-  const { requestLog, logSheet } = useContactLog()
+  const [sendingOffer, setSendingOffer] = useState(false)
 
   const targets = useMemo(() => {
     const customerMap = new Map(customers.map((c) => [c.id, c]))
@@ -110,26 +109,59 @@ export function UpsellTargetsCard({ customers, jobs, onCreateEstimate }: UpsellT
     setShowSendOffer(true)
   }
 
-  const handleSendOfferSubmit = () => {
-    if (!selectedTarget) return
-    
-    // Copy to clipboard as a quick action
-    navigator.clipboard.writeText(offerMessage)
-    toast.success('Offer message copied to clipboard!')
-    
-    // Open email/SMS if available
+  const handleSendOfferSubmit = async () => {
+    if (!selectedTarget || sendingOffer) return
+
+    // Email has no in-app send path yet, so it stays a mailto: handoff.
     if (selectedTarget.email) {
+      navigator.clipboard.writeText(offerMessage)
       const subject = encodeURIComponent(`Special Offer: ${selectedTarget.suggestion}`)
       const body = encodeURIComponent(offerMessage)
       window.open(`mailto:${selectedTarget.email}?subject=${subject}&body=${body}`, '_blank')
-    } else if (selectedTarget.phone) {
-      const body = encodeURIComponent(offerMessage)
-      window.open(`sms:${selectedTarget.phone}?body=${body}`, '_blank')
-      requestLog('text', { customerId: selectedTarget.customerId }, selectedTarget.name)
+      toast.success('Offer copied and email opened')
+      setShowSendOffer(false)
+      setSelectedTarget(null)
+      return
     }
-    
-    setShowSendOffer(false)
-    setSelectedTarget(null)
+
+    if (!selectedTarget.phone) {
+      toast.error('No email or phone on file for this customer')
+      return
+    }
+
+    // This dialog is already an editable message box, so send it straight
+    // through Quo rather than opening a second compose sheet.
+    setSendingOffer(true)
+    try {
+      const res = await fetch('/api/quo/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: selectedTarget.customerId,
+          body: offerMessage,
+        }),
+      })
+      const json = await res.json().catch(() => null)
+
+      if (!res.ok || json?.result?.status !== 'sent') {
+        const skip = json?.result?.skipReason
+        toast.error(
+          skip === 'opted_out'
+            ? `${selectedTarget.name} has opted out of texts`
+            : (json?.result?.error ?? json?.error ?? 'Could not send offer'),
+        )
+        setSendingOffer(false)
+        return
+      }
+
+      toast.success('Offer sent')
+      setSendingOffer(false)
+      setShowSendOffer(false)
+      setSelectedTarget(null)
+    } catch {
+      setSendingOffer(false)
+      toast.error('Could not send offer. Check your connection.')
+    }
   }
 
   return (
@@ -233,21 +265,39 @@ export function UpsellTargetsCard({ customers, jobs, onCreateEstimate }: UpsellT
             )}
             {!selectedTarget?.email && selectedTarget?.phone && (
               <p className="text-xs text-muted-foreground">
-                Will open SMS to: {selectedTarget.phone}
+                Sends a text to {selectedTarget.phone} from your business line and logs
+                it automatically.
               </p>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSendOffer(false)}>Cancel</Button>
-            <Button onClick={handleSendOfferSubmit}>
-              <Mail className="h-4 w-4 mr-2" />
-              Send Offer
+            <Button
+              variant="outline"
+              onClick={() => setShowSendOffer(false)}
+              disabled={sendingOffer}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSendOfferSubmit} disabled={sendingOffer}>
+              {sendingOffer ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
+                  Sending
+                </>
+              ) : (
+                <>
+                  {selectedTarget?.email ? (
+                    <Mail className="h-4 w-4 mr-2" aria-hidden="true" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-2" aria-hidden="true" />
+                  )}
+                  Send Offer
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {logSheet}
     </>
   )
 }

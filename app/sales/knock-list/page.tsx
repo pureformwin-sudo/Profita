@@ -75,7 +75,7 @@ export default function SalesKnockListPage() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null)
   const [sortBy, setSortBy] = useState<'distance' | 'recent' | 'oldest'>('distance')
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all')
-  const { requestLog, logSheet } = useContactLog(() => loadData())
+  const { requestLog, requestText, contactSheets } = useContactLog(() => loadData())
 
   const loadData = async () => {
     setLoading(true)
@@ -332,15 +332,12 @@ export default function SalesKnockListPage() {
                           variant="ghost"
                           size="icon"
                           className="h-9 w-9 rounded-full bg-sky-500/10 text-sky-500 hover:bg-sky-500/20"
-                          asChild
+                          aria-label={`Text ${lead.name || 'lead'}`}
+                          onClick={() =>
+                            requestText({ leadId: lead.id }, lead.name || '', lead.phone, lead.rep_employee_id)
+                          }
                         >
-                          <a
-                            href={`sms:${lead.phone}`}
-                            aria-label={`Text ${lead.name || 'lead'}`}
-                            onClick={() => requestLog('text', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)}
-                          >
-                            <MessageSquare className="h-4 w-4" />
-                          </a>
+                          <MessageSquare className="h-4 w-4" />
                         </Button>
                       </>
                     )}
@@ -374,7 +371,7 @@ export default function SalesKnockListPage() {
         })}
       </div>
 
-      {logSheet}
+      {contactSheets}
     </div>
   )
 }

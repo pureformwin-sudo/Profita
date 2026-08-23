@@ -307,9 +307,14 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Log onto the lead timeline so calls/texts show up in the D2D flow.
-  // Only when it resolved to a lead, and only once per event.
+  //
+  // Runs when we resolved a lead OR when this event may correspond to an
+  // activity already written at send time (in-app texts, which can be
+  // customer/job-scoped with no lead). Insert below still requires a leadId,
+  // but the merge path must be reachable without one or outbound in-app texts
+  // get logged a second time.
   const activityType = activityTypeFor(parsed.kind)
-  if (leadId && activityType && companyId && ownerUserId && !saved?.lead_activity_id) {
+  if ((leadId || parsed.objectId) && activityType && companyId && ownerUserId && !saved?.lead_activity_id) {
     // Column set is subject / notes / metadata — there is no `description`.
     const dir = parsed.direction ?? 'incoming'
     const subject =
@@ -330,12 +335,20 @@ export async function POST(req: NextRequest) {
     // call.recording.completed) with DIFFERENT event ids but the same object id.
     // Event-id idempotency can't catch that, so look for an existing row for this
     // same call and enrich it instead of logging the call twice.
+    //
+    // Messages need the same treatment for a different reason: a text sent from
+    // inside the app is logged at send time (lib/quo-send) stamped with its
+    // quo_message_id, and Quo then delivers a message.* webhook for that same
+    // text. Without this the outbound text would appear on the timeline twice.
     let existingActivityId: string | null = null
-    if (parsed.kind === 'call' && parsed.objectId) {
+    if (parsed.objectId) {
+      // Scoped by company + object id rather than lead id: an in-app text sent
+      // from a job writes job_id/customer_id and may have no lead_id at all, so
+      // a lead-scoped lookup would miss it and double-log.
       const { data: prior } = await supabase
         .from('lead_activities')
         .select('id')
-        .eq('lead_id', leadId)
+        .eq('company_id', companyId)
         .eq('metadata->>quo_object_id', parsed.objectId)
         .limit(1)
         .maybeSingle()
@@ -387,6 +400,20 @@ export async function POST(req: NextRequest) {
         eventId: parsed.quoEventId,
         kind: parsed.kind,
         mergedIntoExistingActivity: true,
+        linked: { companyId, leadId, customerId, createdLead },
+      })
+    }
+
+    // No lead and no existing row to merge into: there is no subject to hang a
+    // timeline entry on (lead_activities requires lead/customer/job). The event
+    // itself is already stored in quo_events, so nothing is lost.
+    if (!leadId) {
+      return NextResponse.json({
+        received: true,
+        stored: true,
+        eventId: parsed.quoEventId,
+        kind: parsed.kind,
+        activityLogged: false,
         linked: { companyId, leadId, customerId, createdLead },
       })
     }

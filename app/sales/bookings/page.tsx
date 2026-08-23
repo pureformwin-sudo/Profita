@@ -109,7 +109,7 @@ export default function SalesBookingsPage() {
   const [loading, setLoading] = useState(true)
   const [showNewBooking, setShowNewBooking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const { requestLog, logSheet } = useContactLog()
+  const { requestLog, requestText, contactSheets } = useContactLog()
   
   // New booking form
   const [selectedLeadId, setSelectedLeadId] = useState('')
@@ -295,21 +295,16 @@ export default function SalesBookingsPage() {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 rounded-full bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
-                    asChild
+                    aria-label={`Text ${booking.lead_name || 'contact'}`}
+                    onClick={() =>
+                      requestText(
+                        { leadId: booking.lead_id, customerId: booking.customer_id },
+                        booking.lead_name || booking.customer_name || '',
+                        booking.lead_phone,
+                      )
+                    }
                   >
-                    <a
-                      href={`sms:${booking.lead_phone}`}
-                      aria-label={`Text ${booking.lead_name || 'contact'}`}
-                      onClick={() =>
-                        requestLog(
-                          'text',
-                          { leadId: booking.lead_id, customerId: booking.customer_id },
-                          booking.lead_name || booking.customer_name || '',
-                        )
-                      }
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                    </a>
+                    <MessageSquare className="h-4 w-4" />
                   </Button>
                 </>
               )}
@@ -580,7 +575,7 @@ export default function SalesBookingsPage() {
         </DialogContent>
       </Dialog>
 
-      {logSheet}
+      {contactSheets}
     </div>
   )
 }
