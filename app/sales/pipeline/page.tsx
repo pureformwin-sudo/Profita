@@ -12,6 +12,7 @@ import {
   MapPin,
   UserCheck,
   ExternalLink,
+  MessageSquare,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,6 +32,7 @@ import {
   type LeadStatus,
 } from '@/lib/leads-storage'
 import { cn } from '@/lib/utils'
+import { useContactLog } from '@/components/use-contact-log'
 
 // Active swimlanes left → right
 const ACTIVE_COLUMNS: LeadStatus[] = [
@@ -288,6 +290,7 @@ function PipelineColumn({
   const idx = ACTIVE_COLUMNS.indexOf(status)
   const canAdvance = idx < ACTIVE_COLUMNS.length - 1
   const canRetreat = idx > 0
+  const { requestLog, logSheet } = useContactLog()
 
   return (
     <div className={cn('rounded-2xl bg-card/60 border border-border ring-1 p-3 flex flex-col', tone.ring)}>
@@ -336,15 +339,31 @@ function PipelineColumn({
                 </div>
               </div>
 
-              {/* Phone link */}
+              {/* Phone links */}
               {lead.phone && (
-                <a
-                  href={`tel:${lead.phone}`}
-                  className="text-xs text-emerald-400 inline-flex items-center gap-1 hover:underline"
-                >
-                  <Phone className="h-3 w-3" />
-                  {lead.phone}
-                </a>
+                <div className="flex items-center gap-3">
+                  <a
+                    href={`tel:${lead.phone}`}
+                    onClick={() =>
+                      requestLog('call', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)
+                    }
+                    className="text-xs text-emerald-400 inline-flex items-center gap-1 hover:underline"
+                  >
+                    <Phone className="h-3 w-3" />
+                    {lead.phone}
+                  </a>
+                  <a
+                    href={`sms:${lead.phone}`}
+                    aria-label={`Text ${lead.name || 'lead'}`}
+                    onClick={() =>
+                      requestLog('text', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)
+                    }
+                    className="text-xs text-sky-400 inline-flex items-center gap-1 hover:underline"
+                  >
+                    <MessageSquare className="h-3 w-3" />
+                    Text
+                  </a>
+                </div>
               )}
 
               {/* Conversion indicator - show when lead has been converted to customer */}
@@ -405,6 +424,8 @@ function PipelineColumn({
           )
         })}
       </div>
+
+      {logSheet}
     </div>
   )
 }

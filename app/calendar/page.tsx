@@ -14,7 +14,8 @@ import { getJobs, addJob, updateJob, deleteJob, getCustomers, addIncome } from '
 import { Job, JobType, JobStatus, Customer } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils-finance'
 import { toast } from 'sonner'
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, Clock, MapPin, DollarSign, User, Briefcase, X, Navigation, ClipboardList, ExternalLink, Loader2, UserCheck } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, Clock, MapPin, DollarSign, User, Briefcase, X, Navigation, ClipboardList, ExternalLink, Loader2, UserCheck, MessageSquare } from 'lucide-react'
+import { useContactLog } from '@/components/use-contact-log'
 import { getBookings, type Booking } from '@/lib/bookings-storage'
 import { convertBookingToJob } from '@/lib/workflow-conversions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -46,6 +47,7 @@ export default function CalendarPage() {
   const [showBookingModal, setShowBookingModal] = useState(false)
   const [convertingBooking, setConvertingBooking] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const { requestLog, logSheet } = useContactLog()
 
   const [formData, setFormData] = useState({
     customerId: '',
@@ -1226,20 +1228,46 @@ export default function CalendarPage() {
                     </Button>
                   )}
                   {selectedBooking.lead_phone && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => window.open(`tel:${selectedBooking.lead_phone}`)}
-                    >
-                      <User className="h-4 w-4 mr-2" />
-                      Call
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          window.open(`tel:${selectedBooking.lead_phone}`)
+                          requestLog(
+                            'call',
+                            { leadId: selectedBooking.lead_id, customerId: selectedBooking.customer_id },
+                            selectedBooking.lead_name || selectedBooking.customer_name || '',
+                          )
+                        }}
+                      >
+                        <User className="h-4 w-4 mr-2" />
+                        Call
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          window.open(`sms:${selectedBooking.lead_phone}`)
+                          requestLog(
+                            'text',
+                            { leadId: selectedBooking.lead_id, customerId: selectedBooking.customer_id },
+                            selectedBooking.lead_name || selectedBooking.customer_name || '',
+                          )
+                        }}
+                      >
+                        <MessageSquare className="h-4 w-4 mr-2" />
+                        Text
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
             )}
           </DialogContent>
         </Dialog>
+
+        {logSheet}
       </div>
     </AppShell>
   )

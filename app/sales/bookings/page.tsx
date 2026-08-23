@@ -48,6 +48,7 @@ import {
 } from '@/lib/bookings-storage'
 import { getLeadsForCurrentRep, type Lead } from '@/lib/leads-storage'
 import { cn } from '@/lib/utils'
+import { useContactLog } from '@/components/use-contact-log'
 
 const STATUS_CONFIG: Record<Booking['status'], { label: string; color: string; bg: string }> = {
   scheduled: { label: 'Scheduled', color: 'text-blue-400', bg: 'bg-blue-500/15' },
@@ -108,6 +109,7 @@ export default function SalesBookingsPage() {
   const [loading, setLoading] = useState(true)
   const [showNewBooking, setShowNewBooking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const { requestLog, logSheet } = useContactLog()
   
   // New booking form
   const [selectedLeadId, setSelectedLeadId] = useState('')
@@ -275,7 +277,17 @@ export default function SalesBookingsPage() {
                     className="h-8 w-8 rounded-full bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
                     asChild
                   >
-                    <a href={`tel:${booking.lead_phone}`}>
+                    <a
+                      href={`tel:${booking.lead_phone}`}
+                      aria-label={`Call ${booking.lead_name || 'contact'}`}
+                      onClick={() =>
+                        requestLog(
+                          'call',
+                          { leadId: booking.lead_id, customerId: booking.customer_id },
+                          booking.lead_name || booking.customer_name || '',
+                        )
+                      }
+                    >
                       <Phone className="h-4 w-4" />
                     </a>
                   </Button>
@@ -285,7 +297,17 @@ export default function SalesBookingsPage() {
                     className="h-8 w-8 rounded-full bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
                     asChild
                   >
-                    <a href={`sms:${booking.lead_phone}`}>
+                    <a
+                      href={`sms:${booking.lead_phone}`}
+                      aria-label={`Text ${booking.lead_name || 'contact'}`}
+                      onClick={() =>
+                        requestLog(
+                          'text',
+                          { leadId: booking.lead_id, customerId: booking.customer_id },
+                          booking.lead_name || booking.customer_name || '',
+                        )
+                      }
+                    >
                       <MessageSquare className="h-4 w-4" />
                     </a>
                   </Button>
@@ -557,6 +579,8 @@ export default function SalesBookingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {logSheet}
     </div>
   )
 }
