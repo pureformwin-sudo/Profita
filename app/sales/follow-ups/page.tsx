@@ -75,7 +75,7 @@ export default function SalesFollowUpsPage() {
   const [newReason, setNewReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   // Logging a contact updates last_contact_at, which feeds these lists.
-  const { requestLog, logSheet } = useContactLog(() => loadData())
+  const { requestLog, requestText, contactSheets } = useContactLog(() => loadData())
 
   const loadData = async () => {
     setLoading(true)
@@ -217,15 +217,12 @@ export default function SalesFollowUpsPage() {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 rounded-full bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
-                  asChild
+                  aria-label={`Text ${lead.name || 'lead'}`}
+                  onClick={() =>
+                    requestText({ leadId: lead.id }, lead.name || '', lead.phone, lead.rep_employee_id)
+                  }
                 >
-                  <a
-                    href={`sms:${lead.phone}`}
-                    aria-label={`Text ${lead.name || 'lead'}`}
-                    onClick={() => requestLog('text', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)}
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                  </a>
+                  <MessageSquare className="h-4 w-4" />
                 </Button>
               )}
             </div>
@@ -388,7 +385,7 @@ export default function SalesFollowUpsPage() {
         </DialogContent>
       </Dialog>
 
-      {logSheet}
+      {contactSheets}
     </div>
   )
 }

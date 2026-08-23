@@ -83,7 +83,7 @@ export default function CrewJobDetailPage() {
     details: string | null
   }>>([])
 
-  const { requestLog, logSheet } = useContactLog()
+  const { requestLog, requestText, contactSheets } = useContactLog()
 
   const beforeInputRef = useRef<HTMLInputElement>(null)
   const afterInputRef = useRef<HTMLInputElement>(null)
@@ -401,20 +401,19 @@ export default function CrewJobDetailPage() {
                         Call
                       </a>
                     </Button>
-                    <Button asChild variant="outline" size="sm">
-                      <a
-                        href={`sms:${job.customer.phone}`}
-                        onClick={() =>
-                          requestLog(
-                            'text',
-                            { jobId: job.id, customerId: job.customer?.id },
-                            job.customer?.name || '',
-                          )
-                        }
-                      >
-                        <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
-                        Text
-                      </a>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        requestText(
+                          { jobId: job.id, customerId: job.customer?.id },
+                          job.customer?.name || '',
+                          job.customer?.phone,
+                        )
+                      }
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                      Text
                     </Button>
                   </>
                 )}
@@ -608,7 +607,7 @@ export default function CrewJobDetailPage() {
           </Card>
         )}
 
-        {logSheet}
+        {contactSheets}
       </div>
     </AppShell>
   )

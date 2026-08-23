@@ -30,6 +30,14 @@ export async function POST(req: NextRequest) {
       phone?: string
       body?: string
       appendStopFooter?: boolean
+      /**
+       * Context for the CRM timeline entry. `jobId` can only ever come from here
+       * — Quo's webhook sees a phone number and cannot know the job.
+       */
+      jobId?: string
+      repEmployeeId?: string | null
+      /** Set false to send without writing a timeline entry. Defaults to true. */
+      logActivity?: boolean
     } | null
 
     if (!payload) {
@@ -63,6 +71,17 @@ export async function POST(req: NextRequest) {
 
       const outcome = await sendToRecipient(ctx, recipient, template, {
         appendStopFooter: payload.appendStopFooter ?? false,
+        // Default to logging: a single send always comes from a contact surface
+        // where the user expects to see it on the timeline.
+        activitySubject:
+          payload.logActivity === false
+            ? undefined
+            : {
+                leadId: payload.leadId ?? null,
+                customerId: payload.customerId ?? null,
+                jobId: payload.jobId ?? null,
+              },
+        repEmployeeId: payload.repEmployeeId ?? null,
       })
 
       return NextResponse.json(
@@ -84,7 +103,17 @@ export async function POST(req: NextRequest) {
       ctx,
       { id: normalized, kind: 'adhoc', name: null, phone: normalized },
       renderTemplate(template, { name: null }),
-      { appendStopFooter: payload.appendStopFooter ?? false },
+      {
+        appendStopFooter: payload.appendStopFooter ?? false,
+        // A bare number can still belong to a job (crew texting the customer on
+        // site), so honor jobId here too. With no subject at all this stays
+        // undefined and only the audit row is written.
+        activitySubject:
+          payload.logActivity === false || !payload.jobId
+            ? undefined
+            : { jobId: payload.jobId },
+        repEmployeeId: payload.repEmployeeId ?? null,
+      },
     )
 
     return NextResponse.json(

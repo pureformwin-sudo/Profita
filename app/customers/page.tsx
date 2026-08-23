@@ -12,7 +12,7 @@ import { getCustomers, addCustomer, deleteCustomer, updateCustomer, getIncome, g
 import { Customer, Income, Job, Estimate, Invoice } from '@/lib/types'
 import { toast } from 'sonner'
 import { Plus, Trash2, Phone, MapPin, Search, Pencil, Mail, MoreVertical, Users, AlertCircle, DollarSign, MessageSquare } from 'lucide-react'
-import { LogContactSheet } from '@/components/log-contact-sheet'
+import { useContactLog } from '@/components/use-contact-log'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { SmartBadge } from '@/components/ai/smart-badge'
@@ -40,11 +40,9 @@ export default function CustomersPage() {
   // Customer Detail Drawer
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [showDetailDrawer, setShowDetailDrawer] = useState(false)
-  // Customer + channel we're prompting to log, after the tel:/sms: handoff.
-  const [contactLog, setContactLog] = useState<{
-    customer: Customer
-    mode: 'call' | 'text'
-  } | null>(null)
+  // Text sends in-app through Quo; Call is still a device handoff, so it keeps
+  // the post-call outcome prompt. Both live in the shared hook.
+  const { requestLog, requestText, contactSheets } = useContactLog()
   const router = useRouter()
   
   const [formData, setFormData] = useState({
@@ -353,17 +351,20 @@ return (
                                 <DropdownMenuItem
                                   onClick={() => {
                                     window.open(`tel:${customer.phone}`)
-                                    setContactLog({ customer, mode: 'call' })
+                                    requestLog('call', { customerId: customer.id }, customer.name)
                                   }}
                                 >
                                   <Phone className="h-4 w-4 mr-2" />
                                   Call
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  onClick={() => {
-                                    window.open(`sms:${customer.phone}`)
-                                    setContactLog({ customer, mode: 'text' })
-                                  }}
+                                  onClick={() =>
+                                    requestText(
+                                      { customerId: customer.id },
+                                      customer.name,
+                                      customer.phone,
+                                    )
+                                  }
                                 >
                                   <MessageSquare className="h-4 w-4 mr-2" />
                                   Text
@@ -488,17 +489,20 @@ return (
                                   <DropdownMenuItem
                                     onClick={() => {
                                       window.open(`tel:${customer.phone}`)
-                                      setContactLog({ customer, mode: 'call' })
+                                      requestLog('call', { customerId: customer.id }, customer.name)
                                     }}
                                   >
                                     <Phone className="h-4 w-4 mr-2" />
                                     Call
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() => {
-                                      window.open(`sms:${customer.phone}`)
-                                      setContactLog({ customer, mode: 'text' })
-                                    }}
+                                    onClick={() =>
+                                      requestText(
+                                        { customerId: customer.id },
+                                        customer.name,
+                                        customer.phone,
+                                      )
+                                    }
                                   >
                                     <MessageSquare className="h-4 w-4 mr-2" />
                                     Text
@@ -629,18 +633,8 @@ return (
           onCreateInvoice={(customerId) => router.push(`/invoices?customerId=${customerId}&action=invoice`)}
         />
 
-        {/* Log prompt, shown after handing off to the dialer / messages app */}
-        {contactLog && (
-          <LogContactSheet
-            open={!!contactLog}
-            onOpenChange={(open) => !open && setContactLog(null)}
-            mode={contactLog.mode}
-            subject={{ customerId: contactLog.customer.id }}
-            contactName={contactLog.customer.name || 'this customer'}
-            repEmployeeId={null}
-            onLogged={() => setContactLog(null)}
-          />
-        )}
+        {/* Compose box (text) and post-call log prompt (call) */}
+        {contactSheets}
       </div>
     </AppShell>
   )

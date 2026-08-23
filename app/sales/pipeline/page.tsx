@@ -290,7 +290,7 @@ function PipelineColumn({
   const idx = ACTIVE_COLUMNS.indexOf(status)
   const canAdvance = idx < ACTIVE_COLUMNS.length - 1
   const canRetreat = idx > 0
-  const { requestLog, logSheet } = useContactLog()
+  const { requestLog, requestText, contactSheets } = useContactLog()
 
   return (
     <div className={cn('rounded-2xl bg-card/60 border border-border ring-1 p-3 flex flex-col', tone.ring)}>
@@ -352,17 +352,19 @@ function PipelineColumn({
                     <Phone className="h-3 w-3" />
                     {lead.phone}
                   </a>
-                  <a
-                    href={`sms:${lead.phone}`}
+                  <button
+                    type="button"
                     aria-label={`Text ${lead.name || 'lead'}`}
-                    onClick={() =>
-                      requestLog('text', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)
-                    }
+                    onClick={(e) => {
+                      // Card itself is clickable; don't also open the lead detail.
+                      e.stopPropagation()
+                      requestText({ leadId: lead.id }, lead.name || '', lead.phone, lead.rep_employee_id)
+                    }}
                     className="text-xs text-sky-400 inline-flex items-center gap-1 hover:underline"
                   >
                     <MessageSquare className="h-3 w-3" />
                     Text
-                  </a>
+                  </button>
                 </div>
               )}
 
@@ -425,7 +427,7 @@ function PipelineColumn({
         })}
       </div>
 
-      {logSheet}
+      {contactSheets}
     </div>
   )
 }

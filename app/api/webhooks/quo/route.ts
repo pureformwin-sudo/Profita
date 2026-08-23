@@ -27,6 +27,16 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
+ * How far back to look for the outbound text that an inbound reply is
+ * answering.
+ *
+ * Quo emits no thread/conversation id, so a reply can only be tied back to its
+ * subject through the phone number. Bounded so a reply months later doesn't get
+ * attached to a long-closed job.
+ */
+const THREAD_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
+/**
  * Log the FULL raw payload once per cold start so field names can be confirmed
  * against real traffic before the mapping is finalized. Set QUO_LOG_RAW=true to
  * log every event instead of just the first.
@@ -164,6 +174,10 @@ export async function POST(req: NextRequest) {
   let leadId: string | null = null
   let customerId: string | null = null
   let createdLead = false
+  // Job context can only ever come from thread inheritance (see below): Quo
+  // never sees a job, so there is nothing to match a job on directly.
+  let threadJobId: string | null = null
+  let inheritedFromThread = false
 
   if (parsed.contactNumber) {
     const suffix = parsed.contactNumber
@@ -182,8 +196,9 @@ export async function POST(req: NextRequest) {
     const { data: leads } = await leadQuery.limit(1000)
     leadId = leads?.find((l) => normalizePhone(l.phone) === suffix)?.id ?? null
 
-    // Check customers too — not to link the activity, but to avoid creating a
-    // duplicate lead for someone who is already a customer.
+    // Check customers too. This both avoids creating a duplicate lead for
+    // someone who is already a customer AND gives the activity a subject to
+    // hang off when there is no lead (inbound replies from customers).
     const customerQuery = supabase
       .from('customers')
       .select('id, phone, created_at')
@@ -194,10 +209,58 @@ export async function POST(req: NextRequest) {
     customerId =
       customers?.find((c) => normalizePhone(c.phone) === suffix)?.id ?? null
 
-    // ── Auto-create a lead only when NEITHER a lead nor a customer matches.
+    // ── Recover the subject of an inbound reply from its thread.
+    //
+    // Must run BEFORE the auto-create below: otherwise a reply to a job- or
+    // customer-scoped text (whose number matches no lead) would mint a junk
+    // "Quo contact" lead and log the reply there instead of on the job.
+    //
+    // Quo emits no thread/conversation id, and a reply arrives as its OWN
+    // message with its own object id, so object-id matching can only dedupe
+    // events about one and the same message — it can never tie a reply to the
+    // outbound text. The phone number is the only durable link back, so
+    // reconstruct the thread from the most recent outbound text to this number
+    // and inherit whatever subject it was addressed to. This is also the only
+    // way a reply can recover job context, since Quo never sees a job and
+    // quo_outbound_messages doesn't store job_id either.
+    //
+    // Scoped to inbound texts: "a reply to what we sent" is well defined for a
+    // message, whereas inheriting a job onto an unrelated inbound call is a guess.
+    if (
+      !leadId &&
+      !customerId &&
+      companyId &&
+      parsed.kind === 'message' &&
+      // Quo sometimes omits direction; treated as incoming everywhere else.
+      (parsed.direction ?? 'incoming') === 'incoming'
+    ) {
+      const { data: priorOutbound } = await supabase
+        .from('lead_activities')
+        .select('lead_id, customer_id, job_id')
+        .eq('company_id', companyId)
+        .eq('activity_type', 'sms')
+        .eq('metadata->>direction', 'outgoing')
+        // to_number is stored E.164; suffix is the last 10 digits.
+        .like('metadata->>to_number', `%${suffix}`)
+        // Bounded so a reply months later doesn't reopen a long-closed job.
+        .gte('created_at', new Date(Date.now() - THREAD_LOOKBACK_MS).toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (priorOutbound) {
+        leadId = priorOutbound.lead_id
+        customerId = priorOutbound.customer_id
+        threadJobId = priorOutbound.job_id
+        inheritedFromThread = true
+      }
+    }
+
+    // ── Auto-create a lead only when NEITHER a lead nor a customer matches,
+    // and the reply could not be tied to an existing thread above.
     // Requires a resolved company (leads.user_id is NOT NULL); an unmapped org
     // still gets its event stored, just unlinked.
-    if (!leadId && !customerId && companyId && ownerUserId) {
+    if (!leadId && !customerId && !threadJobId && companyId && ownerUserId) {
       const name = (await lookupQuoContactName(
         parsed.fromNumber ?? parsed.toNumber ?? suffix,
       )) ?? `Quo contact ${suffix.slice(0, 3)}-${suffix.slice(3, 6)}-${suffix.slice(6)}`
@@ -306,10 +369,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Log onto the lead timeline so calls/texts show up in the D2D flow.
-  // Only when it resolved to a lead, and only once per event.
+  // ── Log onto the timeline so calls/texts show up in the D2D flow.
+  //
+  // Runs when we resolved a lead or a customer, OR when this event may
+  // correspond to an activity already written at send time (in-app texts, which
+  // can be customer/job-scoped with no lead) — the merge path must be reachable
+  // without a lead or outbound in-app texts get logged a second time.
   const activityType = activityTypeFor(parsed.kind)
-  if (leadId && activityType && companyId && ownerUserId && !saved?.lead_activity_id) {
+  if (
+    (leadId || customerId || threadJobId || parsed.objectId) &&
+    activityType &&
+    companyId &&
+    ownerUserId &&
+    !saved?.lead_activity_id
+  ) {
     // Column set is subject / notes / metadata — there is no `description`.
     const dir = parsed.direction ?? 'incoming'
     const subject =
@@ -330,12 +403,20 @@ export async function POST(req: NextRequest) {
     // call.recording.completed) with DIFFERENT event ids but the same object id.
     // Event-id idempotency can't catch that, so look for an existing row for this
     // same call and enrich it instead of logging the call twice.
+    //
+    // Messages need the same treatment for a different reason: a text sent from
+    // inside the app is logged at send time (lib/quo-send) stamped with its
+    // quo_message_id, and Quo then delivers a message.* webhook for that same
+    // text. Without this the outbound text would appear on the timeline twice.
     let existingActivityId: string | null = null
-    if (parsed.kind === 'call' && parsed.objectId) {
+    if (parsed.objectId) {
+      // Scoped by company + object id rather than lead id: an in-app text sent
+      // from a job writes job_id/customer_id and may have no lead_id at all, so
+      // a lead-scoped lookup would miss it and double-log.
       const { data: prior } = await supabase
         .from('lead_activities')
         .select('id')
-        .eq('lead_id', leadId)
+        .eq('company_id', companyId)
         .eq('metadata->>quo_object_id', parsed.objectId)
         .limit(1)
         .maybeSingle()
@@ -391,10 +472,26 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // Subject resolution (phone match, then thread inheritance) already ran
+    // above, before lead auto-creation. Nothing to hang a timeline entry on
+    // means the event is still stored in quo_events, so nothing is lost.
+    if (!leadId && !customerId && !threadJobId) {
+      return NextResponse.json({
+        received: true,
+        stored: true,
+        eventId: parsed.quoEventId,
+        kind: parsed.kind,
+        activityLogged: false,
+        linked: { companyId, leadId, customerId, createdLead },
+      })
+    }
+
     const { data: activity, error: activityError } = await supabase
       .from('lead_activities')
       .insert({
         lead_id: leadId,
+        customer_id: customerId,
+        job_id: threadJobId,
         company_id: companyId,
         // lead_activities.user_id is NOT NULL and a webhook has no session user,
         // so attribute the activity to the company owner.
@@ -416,6 +513,9 @@ export async function POST(req: NextRequest) {
           to: parsed.toNumber,
           duration_seconds: parsed.durationSeconds,
           recording_url: parsed.recordingUrl,
+          // Records that this subject came from thread reconstruction rather
+          // than a direct phone match, so a wrong attachment is traceable.
+          subject_inherited_from_thread: inheritedFromThread || undefined,
         },
       })
       .select('id')

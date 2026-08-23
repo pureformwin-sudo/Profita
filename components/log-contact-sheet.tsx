@@ -55,16 +55,17 @@ const OUTCOMES: Array<{
 ]
 
 /**
- * Prompt shown after a `tel:` / `sms:` handoff to the device, so the
- * communication actually gets recorded.
+ * Prompt shown after a `tel:` handoff to the device dialer, so the call actually
+ * gets recorded. Quo has no API to place a call, so dialing is still a handoff
+ * and this prompt is the only way a call made outside the Quo app is captured.
  *
  * Works for leads, customers and jobs — pass whichever ids apply. A call placed
  * from a job should pass BOTH jobId and customerId so it shows on the job and in
  * the customer's history from a single row.
  *
- * For texts there is no delivery signal back from the device, so this asks the
- * user to confirm and only writes a row if they say yes. Nothing is ever logged
- * on tap alone.
+ * `mode='text'` is legacy. Texts now send in-app through Quo (see SendTextSheet)
+ * and are logged server-side, so no confirmation step is needed. The text branch
+ * here is retained only for callers that still ask for it.
  */
 export function LogContactSheet({
   open,

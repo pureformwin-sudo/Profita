@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import { CustomerPortalLink } from '@/components/customer-portal-link'
 import { TakePaymentButton } from '@/components/payments/take-payment-button'
 import { PaymentHistory } from '@/components/payments/payment-history'
-import { LogContactSheet } from '@/components/log-contact-sheet'
+import { useContactLog } from '@/components/use-contact-log'
 
 interface CustomerDetailDrawerProps {
   customer: Customer | null
@@ -51,8 +51,9 @@ export function CustomerDetailDrawer({
 }: CustomerDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState('overview')
   const [paymentRefresh, setPaymentRefresh] = useState(0)
-  // Channel we're prompting to log, after the tel:/sms: handoff.
-  const [contactLogMode, setContactLogMode] = useState<'call' | 'text' | null>(null)
+  // Text sends in-app through Quo; Call is still a device handoff, so it keeps
+  // the post-call outcome prompt. Both live in the shared hook.
+  const { requestLog, requestText, contactSheets } = useContactLog()
 
   if (!customer) return null
 
@@ -139,18 +140,22 @@ export function CustomerDetailDrawer({
                 <Button size="sm" variant="outline" asChild className="flex-1">
                   <a
                     href={`tel:${customer.phone}`}
-                    onClick={() => setContactLogMode('call')}
+                    onClick={() =>
+                      requestLog('call', { customerId: customer.id }, customer.name)
+                    }
                   >
                     <Phone className="h-4 w-4 mr-1" /> Call
                   </a>
                 </Button>
-                <Button size="sm" variant="outline" asChild className="flex-1">
-                  <a
-                    href={`sms:${customer.phone}`}
-                    onClick={() => setContactLogMode('text')}
-                  >
-                    <MessageSquare className="h-4 w-4 mr-1" /> Text
-                  </a>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() =>
+                    requestText({ customerId: customer.id }, customer.name, customer.phone)
+                  }
+                >
+                  <MessageSquare className="h-4 w-4 mr-1" /> Text
                 </Button>
               </>
             )}
@@ -488,19 +493,9 @@ export function CustomerDetailDrawer({
       </SheetContent>
       </Sheet>
 
-      {/* Log prompt, shown after handing off to the dialer / messages app.
+      {/* Compose box (text) and post-call log prompt (call).
           Rendered outside the drawer's Sheet so the two don't nest. */}
-      {contactLogMode && (
-        <LogContactSheet
-          open={!!contactLogMode}
-          onOpenChange={(next) => !next && setContactLogMode(null)}
-          mode={contactLogMode}
-          subject={{ customerId: customer.id }}
-          contactName={customer.name}
-          repEmployeeId={null}
-          onLogged={() => setContactLogMode(null)}
-        />
-      )}
+      {contactSheets}
     </>
   )
 }
