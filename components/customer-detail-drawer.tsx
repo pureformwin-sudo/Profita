@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { CustomerPortalLink } from '@/components/customer-portal-link'
 import { TakePaymentButton } from '@/components/payments/take-payment-button'
 import { PaymentHistory } from '@/components/payments/payment-history'
+import { LogContactSheet } from '@/components/log-contact-sheet'
 
 interface CustomerDetailDrawerProps {
   customer: Customer | null
@@ -50,6 +51,8 @@ export function CustomerDetailDrawer({
 }: CustomerDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState('overview')
   const [paymentRefresh, setPaymentRefresh] = useState(0)
+  // Channel we're prompting to log, after the tel:/sms: handoff.
+  const [contactLogMode, setContactLogMode] = useState<'call' | 'text' | null>(null)
 
   if (!customer) return null
 
@@ -104,7 +107,8 @@ export function CustomerDetailDrawer({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col">
         {/* Header with Back Button */}
         <div className="border-b bg-background sticky top-0 z-10">
@@ -133,12 +137,18 @@ export function CustomerDetailDrawer({
             {customer.phone && (
               <>
                 <Button size="sm" variant="outline" asChild className="flex-1">
-                  <a href={`tel:${customer.phone}`}>
+                  <a
+                    href={`tel:${customer.phone}`}
+                    onClick={() => setContactLogMode('call')}
+                  >
                     <Phone className="h-4 w-4 mr-1" /> Call
                   </a>
                 </Button>
                 <Button size="sm" variant="outline" asChild className="flex-1">
-                  <a href={`sms:${customer.phone}`}>
+                  <a
+                    href={`sms:${customer.phone}`}
+                    onClick={() => setContactLogMode('text')}
+                  >
                     <MessageSquare className="h-4 w-4 mr-1" /> Text
                   </a>
                 </Button>
@@ -476,6 +486,21 @@ export function CustomerDetailDrawer({
           </Tabs>
         </div>
       </SheetContent>
-    </Sheet>
+      </Sheet>
+
+      {/* Log prompt, shown after handing off to the dialer / messages app.
+          Rendered outside the drawer's Sheet so the two don't nest. */}
+      {contactLogMode && (
+        <LogContactSheet
+          open={!!contactLogMode}
+          onOpenChange={(next) => !next && setContactLogMode(null)}
+          mode={contactLogMode}
+          subject={{ customerId: customer.id }}
+          contactName={customer.name}
+          repEmployeeId={null}
+          onLogged={() => setContactLogMode(null)}
+        />
+      )}
+    </>
   )
 }

@@ -14,6 +14,7 @@ import {
   X,
   AlertCircle,
   Sparkles,
+  MessageSquare,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +35,7 @@ import {
   type LeadStatus,
 } from '@/lib/leads-storage'
 import { cn } from '@/lib/utils'
+import { useContactLog } from '@/components/use-contact-log'
 
 const KNOCK_STATUSES: LeadStatus[] = ['knocked', 'not_home', 'not_interested']
 
@@ -73,6 +75,7 @@ export default function SalesKnockListPage() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null)
   const [sortBy, setSortBy] = useState<'distance' | 'recent' | 'oldest'>('distance')
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all')
+  const { requestLog, logSheet } = useContactLog(() => loadData())
 
   const loadData = async () => {
     setLoading(true)
@@ -310,16 +313,36 @@ export default function SalesKnockListPage() {
                       </Button>
                     )}
                     {lead.phone && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 rounded-full bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
-                        asChild
-                      >
-                        <a href={`tel:${lead.phone}`}>
-                          <Phone className="h-4 w-4" />
-                        </a>
-                      </Button>
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 rounded-full bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+                          asChild
+                        >
+                          <a
+                            href={`tel:${lead.phone}`}
+                            aria-label={`Call ${lead.name || 'lead'}`}
+                            onClick={() => requestLog('call', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)}
+                          >
+                            <Phone className="h-4 w-4" />
+                          </a>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 rounded-full bg-sky-500/10 text-sky-500 hover:bg-sky-500/20"
+                          asChild
+                        >
+                          <a
+                            href={`sms:${lead.phone}`}
+                            aria-label={`Text ${lead.name || 'lead'}`}
+                            onClick={() => requestLog('text', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)}
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -350,6 +373,8 @@ export default function SalesKnockListPage() {
           )
         })}
       </div>
+
+      {logSheet}
     </div>
   )
 }

@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import type { Customer, Job } from '@/lib/types'
+import { useContactLog } from '@/components/use-contact-log'
 
 interface UpsellTargetsCardProps {
   customers: Customer[]
@@ -38,6 +39,7 @@ export function UpsellTargetsCard({ customers, jobs, onCreateEstimate }: UpsellT
   const [selectedTarget, setSelectedTarget] = useState<UpsellTarget | null>(null)
   const [showSendOffer, setShowSendOffer] = useState(false)
   const [offerMessage, setOfferMessage] = useState('')
+  const { requestLog, logSheet } = useContactLog()
 
   const targets = useMemo(() => {
     const customerMap = new Map(customers.map((c) => [c.id, c]))
@@ -123,6 +125,7 @@ export function UpsellTargetsCard({ customers, jobs, onCreateEstimate }: UpsellT
     } else if (selectedTarget.phone) {
       const body = encodeURIComponent(offerMessage)
       window.open(`sms:${selectedTarget.phone}?body=${body}`, '_blank')
+      requestLog('text', { customerId: selectedTarget.customerId }, selectedTarget.name)
     }
     
     setShowSendOffer(false)
@@ -243,6 +246,8 @@ export function UpsellTargetsCard({ customers, jobs, onCreateEstimate }: UpsellT
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {logSheet}
     </>
   )
 }

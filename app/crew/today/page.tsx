@@ -10,8 +10,9 @@ import { Badge } from '@/components/ui/badge'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { 
   Briefcase, Clock, MapPin, Phone, ChevronRight, AlertCircle, Calendar,
-  Play, Navigation, Loader2
+  Play, Navigation, Loader2, MessageSquare
 } from 'lucide-react'
+import { useContactLog } from '@/components/use-contact-log'
 import { 
   getMyJobsForDate, 
   getMyEmployeeId,
@@ -28,6 +29,15 @@ export default function CrewTodayPage() {
   const [tablesMissing, setTablesMissing] = useState(false)
   const [employeeId, setEmployeeId] = useState<string | null>(null)
   const [busyJobId, setBusyJobId] = useState<string | null>(null)
+  const { requestLog, logSheet } = useContactLog()
+
+  // Crew calls are about the job's customer, so log both ids on one row.
+  const handleContact = (mode: 'call' | 'text', job: CrewJob) =>
+    requestLog(
+      mode,
+      { jobId: job.id, customerId: job.customer_id, leadId: job.lead_id },
+      job.customer_name,
+    )
 
   const loadJobs = async () => {
     const today = new Date()
@@ -198,6 +208,7 @@ export default function CrewTodayPage() {
                 onQuickStart={handleQuickStart}
                 onSetOnMyWay={handleSetOnMyWay}
                 getStatusColors={getStatusColors}
+                onContact={handleContact}
               />
             ))}
           </div>
@@ -215,6 +226,7 @@ export default function CrewTodayPage() {
                 onQuickStart={handleQuickStart}
                 onSetOnMyWay={handleSetOnMyWay}
                 getStatusColors={getStatusColors}
+                onContact={handleContact}
               />
             ))}
           </div>
@@ -233,10 +245,13 @@ export default function CrewTodayPage() {
                 onSetOnMyWay={handleSetOnMyWay}
                 getStatusColors={getStatusColors}
                 isCompleted
+                onContact={handleContact}
               />
             ))}
           </div>
         )}
+
+        {logSheet}
       </div>
     </AppShell>
   )
@@ -248,7 +263,8 @@ function JobCard({
   onQuickStart, 
   onSetOnMyWay,
   getStatusColors,
-  isCompleted = false
+  isCompleted = false,
+  onContact,
 }: { 
   job: CrewJob
   busyJobId: string | null
@@ -256,6 +272,7 @@ function JobCard({
   onSetOnMyWay: (job: CrewJob, e: React.MouseEvent) => void
   getStatusColors: (status: string) => { bg: string; text: string; border: string }
   isCompleted?: boolean
+  onContact: (mode: 'call' | 'text', job: CrewJob) => void
 }) {
   const statusColors = getStatusColors(job.status)
   const isBusy = busyJobId === job.id
@@ -351,18 +368,38 @@ function JobCard({
                   </Button>
                 )}
                 {job.customer_phone && (
-                  <Button
-                    asChild
-                    size="sm"
-                    variant="outline"
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-10 px-3"
-                  >
-                    <a href={`tel:${job.customer_phone}`}>
-                      <Phone className="h-4 w-4 mr-1.5" />
-                      Call
-                    </a>
-                  </Button>
+                  <>
+                    <Button
+                      asChild
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onContact('call', job)
+                      }}
+                      className="h-10 px-3"
+                    >
+                      <a href={`tel:${job.customer_phone}`}>
+                        <Phone className="h-4 w-4 mr-1.5" />
+                        Call
+                      </a>
+                    </Button>
+                    <Button
+                      asChild
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onContact('text', job)
+                      }}
+                      className="h-10 px-3"
+                    >
+                      <a href={`sms:${job.customer_phone}`}>
+                        <MessageSquare className="h-4 w-4 mr-1.5" />
+                        Text
+                      </a>
+                    </Button>
+                  </>
                 )}
                 <span className="ml-auto text-xs text-muted-foreground inline-flex items-center">
                   Details <ChevronRight className="h-3.5 w-3.5" />

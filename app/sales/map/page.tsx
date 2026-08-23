@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useContactLog } from '@/components/use-contact-log'
 import {
   Search,
   Plus,
@@ -769,6 +770,7 @@ function LeadDrawer({
   const [showNotes, setShowNotes] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const config = STATUS_CONFIG[lead.status] || STATUS_CONFIG.knocked
+  const { requestLog, logSheet } = useContactLog()
 
   useEffect(() => {
     setNotes(lead.notes || '')
@@ -816,7 +818,11 @@ function LeadDrawer({
       <div className="px-5 py-3 border-b border-zinc-700/50">
         <div className="grid grid-cols-4 gap-2">
           <button
-            onClick={() => lead.phone && window.open(`tel:${lead.phone}`)}
+            onClick={() => {
+              if (!lead.phone) return
+              window.open(`tel:${lead.phone}`)
+              requestLog('call', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)
+            }}
             disabled={!lead.phone}
             className="flex flex-col items-center gap-1 py-2 rounded-lg bg-zinc-800/50 hover:bg-zinc-700/50 transition-colors disabled:opacity-30"
           >
@@ -824,7 +830,11 @@ function LeadDrawer({
             <span className="text-[11px] font-medium text-zinc-300">Call</span>
           </button>
           <button
-            onClick={() => lead.phone && window.open(`sms:${lead.phone}`)}
+            onClick={() => {
+              if (!lead.phone) return
+              window.open(`sms:${lead.phone}`)
+              requestLog('text', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)
+            }}
             disabled={!lead.phone}
             className="flex flex-col items-center gap-1 py-2 rounded-lg bg-zinc-800/50 hover:bg-zinc-700/50 transition-colors disabled:opacity-30"
           >
@@ -976,6 +986,8 @@ function LeadDrawer({
           </div>
         )}
       </div>
+
+      {logSheet}
     </div>
   )
 }

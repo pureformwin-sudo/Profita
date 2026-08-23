@@ -12,8 +12,9 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   ArrowLeft, Clock, Camera, MapPin, Phone, CheckCircle2, Briefcase,
   PlayCircle, StopCircle, ImageIcon, Upload, AlertCircle, Loader2,
-  Users, History, ChevronDown, Navigation,
+  Users, History, ChevronDown, Navigation, MessageSquare,
 } from 'lucide-react'
+import { useContactLog } from '@/components/use-contact-log'
 import { createClient } from '@/lib/supabase/client'
 import {
   getJobEvents, isClockedIn, logClockEvent, totalHoursFromEvents,
@@ -81,6 +82,8 @@ export default function CrewJobDetailPage() {
     actor: string | null
     details: string | null
   }>>([])
+
+  const { requestLog, logSheet } = useContactLog()
 
   const beforeInputRef = useRef<HTMLInputElement>(null)
   const afterInputRef = useRef<HTMLInputElement>(null)
@@ -382,12 +385,38 @@ export default function CrewJobDetailPage() {
               </div>
               <div className="flex items-center gap-2">
                 {job.customer.phone && (
-                  <Button asChild variant="outline" size="sm">
-                    <a href={`tel:${job.customer.phone}`}>
-                      <Phone className="h-3.5 w-3.5 mr-1.5" />
-                      Call
-                    </a>
-                  </Button>
+                  <>
+                    <Button asChild variant="outline" size="sm">
+                      <a
+                        href={`tel:${job.customer.phone}`}
+                        onClick={() =>
+                          requestLog(
+                            'call',
+                            { jobId: job.id, customerId: job.customer?.id },
+                            job.customer?.name || '',
+                          )
+                        }
+                      >
+                        <Phone className="h-3.5 w-3.5 mr-1.5" />
+                        Call
+                      </a>
+                    </Button>
+                    <Button asChild variant="outline" size="sm">
+                      <a
+                        href={`sms:${job.customer.phone}`}
+                        onClick={() =>
+                          requestLog(
+                            'text',
+                            { jobId: job.id, customerId: job.customer?.id },
+                            job.customer?.name || '',
+                          )
+                        }
+                      >
+                        <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                        Text
+                      </a>
+                    </Button>
+                  </>
                 )}
                 {job.customer.address && (
                   <Button asChild variant="outline" size="sm">
@@ -578,6 +607,8 @@ export default function CrewJobDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {logSheet}
       </div>
     </AppShell>
   )
