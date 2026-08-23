@@ -36,7 +36,7 @@ import {
   type LeadStatus,
 } from '@/lib/leads-storage'
 import { cn } from '@/lib/utils'
-import { LogContactSheet } from '@/components/log-contact-sheet'
+import { useContactLog } from '@/components/use-contact-log'
 import { STATUS_CONFIG } from '../map/page'
 import { convertLeadToCustomer, checkLeadConversionStatus } from '@/lib/workflow-conversions'
 import { UserPlus, ExternalLink } from 'lucide-react'
@@ -64,11 +64,19 @@ export default function SalesLeadsPage() {
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all')
   const [showFilterSheet, setShowFilterSheet] = useState(false)
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
-  // Lead + channel we're prompting the rep to log, after the tel:/sms: handoff.
-  const [contactLog, setContactLog] = useState<{
-    lead: Lead
-    mode: 'call' | 'text'
-  } | null>(null)
+  // Text sends in-app through Quo; Call is still a device handoff, so it keeps
+  // the post-call outcome prompt. Both live in the shared hook.
+  const { requestLog, requestText, contactSheets } = useContactLog((subject) => {
+    // Mirror the write that just persisted (last_contact_at, and updated_at via
+    // updateLead) so the card's "x ago" refreshes without a full reload.
+    if (!subject.leadId) return
+    const now = new Date().toISOString()
+    setLeads((prev) =>
+      prev.map((l) =>
+        l.id === subject.leadId ? { ...l, last_contact_at: now, updated_at: now } : l,
+      ),
+    )
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -303,7 +311,9 @@ export default function SalesLeadsPage() {
                       // The tel: navigation still happens natively and hands off
                       // to the device dialer; we just queue the log prompt so it
                       // is waiting when the rep returns to the app.
-                      if (lead.phone) setContactLog({ lead, mode: 'call' })
+                      if (lead.phone) {
+                        requestLog('call', { leadId: lead.id }, lead.name || '', lead.rep_employee_id)
+                      }
                     }}
                     className={cn(
                       'rounded-xl bg-zinc-800 border border-zinc-700 p-3 flex flex-col items-center gap-1.5 text-xs font-medium transition-all',
@@ -315,10 +325,13 @@ export default function SalesLeadsPage() {
                     <Phone className="h-4 w-4 text-emerald-400" />
                     Call
                   </a>
-                  <a
-                    href={lead.phone ? `sms:${lead.phone}` : undefined}
+                  <button
+                    type="button"
+                    disabled={!lead.phone}
                     onClick={() => {
-                      if (lead.phone) setContactLog({ lead, mode: 'text' })
+                      if (lead.phone) {
+                        requestText({ leadId: lead.id }, lead.name || '', lead.phone, lead.rep_employee_id)
+                      }
                     }}
                     className={cn(
                       'rounded-xl bg-zinc-800 border border-zinc-700 p-3 flex flex-col items-center gap-1.5 text-xs font-medium transition-all',
@@ -329,7 +342,7 @@ export default function SalesLeadsPage() {
                   >
                     <MessageSquare className="h-4 w-4 text-blue-400" />
                     Text
-                  </a>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleStatusChange(lead.id, 'quoted')}
@@ -420,38 +433,27 @@ export default function SalesLeadsPage() {
                 setSelectedLead(updatedLead)
               }}
               onRequestContactLog={(mode) =>
-                setContactLog({ lead: selectedLead, mode })
+                mode === 'text'
+                  ? requestText(
+                      { leadId: selectedLead.id },
+                      selectedLead.name || 'this lead',
+                      selectedLead.phone,
+                      selectedLead.rep_employee_id,
+                    )
+                  : requestLog(
+                      'call',
+                      { leadId: selectedLead.id },
+                      selectedLead.name || 'this lead',
+                      selectedLead.rep_employee_id,
+                    )
               }
             />
           )}
         </SheetContent>
       </Sheet>
 
-      {/* Log prompt, shown after handing off to the device dialer / messages app */}
-      {contactLog && (
-        <LogContactSheet
-          open={!!contactLog}
-          onOpenChange={(open) => !open && setContactLog(null)}
-          mode={contactLog.mode}
-          subject={{ leadId: contactLog.lead.id }}
-          contactName={contactLog.lead.name || 'this lead'}
-          repEmployeeId={contactLog.lead.rep_employee_id}
-          onLogged={() => {
-            // Mirror the write the sheet just persisted (last_contact_at, and
-            // updated_at via updateLead) so the card's "x ago" refreshes without
-            // a full reload.
-            const now = new Date().toISOString()
-            setLeads((prev) =>
-              prev.map((l) =>
-                l.id === contactLog.lead.id
-                  ? { ...l, last_contact_at: now, updated_at: now }
-                  : l,
-              ),
-            )
-            setContactLog(null)
-          }}
-        />
-      )}
+      {/* Compose box (text) and post-call log prompt (call) */}
+      {contactSheets}
     </div>
   )
 }
@@ -554,10 +556,7 @@ function LeadDetailSheet({
             variant="outline"
             size="sm"
             className="flex-1 gap-2 border-zinc-700"
-            onClick={() => {
-              window.open(`sms:${lead.phone}`)
-              onRequestContactLog('text')
-            }}
+            onClick={() => onRequestContactLog('text')}
           >
             <MessageSquare className="h-4 w-4 text-blue-400" />
             Text

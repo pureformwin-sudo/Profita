@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import { CustomerPortalLink } from '@/components/customer-portal-link'
 import { TakePaymentButton } from '@/components/payments/take-payment-button'
 import { PaymentHistory } from '@/components/payments/payment-history'
-import { LogContactSheet } from '@/components/log-contact-sheet'
+import { useContactLog } from '@/components/use-contact-log'
 
 interface CustomerDetailDrawerProps {
   customer: Customer | null

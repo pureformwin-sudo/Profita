@@ -88,7 +88,11 @@ export function SendTextSheet({
       const json = await res.json().catch(() => null)
 
       if (!res.ok) {
-        toast.error(json?.error ?? 'Could not send message')
+        // A hard send failure comes back as 502 with the provider error on
+        // `result`, while validation errors use a top-level `error`.
+        toast.error(
+          json?.result?.error ?? json?.error ?? 'Could not send message',
+        )
         setSending(false)
         return
       }

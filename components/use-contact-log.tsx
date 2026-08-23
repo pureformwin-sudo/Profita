@@ -34,7 +34,7 @@ type Pending = {
  *   outcome prompt for when the user returns. That prompt is the only way a call
  *   dialed outside the Quo app gets recorded.
  */
-export function useContactLog(onLogged?: () => void) {
+export function useContactLog(onLogged?: (subject: ActivitySubject) => void) {
   const [pending, setPending] = useState<Pending | null>(null)
 
   /** Queue the post-call outcome prompt. Only meaningful for mode 'call'. */
@@ -78,8 +78,9 @@ export function useContactLog(onLogged?: () => void) {
       phone={pending.phone}
       repEmployeeId={pending.repEmployeeId}
       onSent={() => {
+        const { subject } = pending
         setPending(null)
-        onLogged?.()
+        onLogged?.(subject)
       }}
     />
   ) : (
@@ -91,17 +92,12 @@ export function useContactLog(onLogged?: () => void) {
       contactName={pending.contactName}
       repEmployeeId={pending.repEmployeeId}
       onLogged={() => {
+        const { subject } = pending
         setPending(null)
-        onLogged?.()
+        onLogged?.(subject)
       }}
     />
   )
 
-  return {
-    requestText,
-    requestLog,
-    contactSheets,
-    /** @deprecated Use `contactSheets`. Kept so existing call sites keep working. */
-    logSheet: contactSheets,
-  }
+  return { requestText, requestLog, contactSheets }
 }
