@@ -192,8 +192,9 @@ export async function POST(req: NextRequest) {
     const { data: leads } = await leadQuery.limit(1000)
     leadId = leads?.find((l) => normalizePhone(l.phone) === suffix)?.id ?? null
 
-    // Check customers too — not to link the activity, but to avoid creating a
-    // duplicate lead for someone who is already a customer.
+    // Check customers too. This both avoids creating a duplicate lead for
+    // someone who is already a customer AND gives the activity a subject to
+    // hang off when there is no lead (inbound replies from customers).
     const customerQuery = supabase
       .from('customers')
       .select('id, phone, created_at')
