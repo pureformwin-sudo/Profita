@@ -27,6 +27,16 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
+ * How far back to look for the outbound text that an inbound reply is
+ * answering.
+ *
+ * Quo emits no thread/conversation id, so a reply can only be tied back to its
+ * subject through the phone number. Bounded so a reply months later doesn't get
+ * attached to a long-closed job.
+ */
+const THREAD_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
+/**
  * Log the FULL raw payload once per cold start so field names can be confirmed
  * against real traffic before the mapping is finalized. Set QUO_LOG_RAW=true to
  * log every event instead of just the first.
