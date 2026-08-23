@@ -231,7 +231,8 @@ export async function POST(req: NextRequest) {
       !customerId &&
       companyId &&
       parsed.kind === 'message' &&
-      parsed.direction === 'incoming'
+      // Quo sometimes omits direction; treated as incoming everywhere else.
+      (parsed.direction ?? 'incoming') === 'incoming'
     ) {
       const { data: priorOutbound } = await supabase
         .from('lead_activities')
