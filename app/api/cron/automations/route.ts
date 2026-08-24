@@ -27,12 +27,28 @@ const MAX_AGE_HOURS = 48
 /** Jobs processed per run, so one pass can't hang on a huge backlog. */
 const BATCH_LIMIT = 50
 
+/**
+ * Template values the body needs but the company hasn't set.
+ *
+ * Pre-flight version of `findUnrenderedTokens`: catches the missing config
+ * before any job is claimed, so nothing is consumed while unconfigured.
+ */
+function requiredTemplateVars(
+  body: string,
+  available: { reviewLink: string },
+): string[] {
+  const missing: string[] = []
+  if (/\{\{\s*review_link\s*\}\}/i.test(body) && !available.reviewLink.trim()) {
+    missing.push('review_link')
+  }
+  return missing
+}
+
 type JobRow = {
   id: string
   company_id: string
   customer_id: string | null
   completed_at: string
-  title: string | null
 }
 
 /** Local hour (0-23) in the given IANA zone. */
@@ -98,8 +114,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: autoErr.message }, { status: 500 })
   }
 
-  console.log('[v0] enabled automations found:', automations?.length ?? 0, JSON.stringify(automations))
-
   for (const row of automations ?? []) {
     const automationType = row.automation_type as AutomationTypeId
     const def = getAutomationType(automationType)
@@ -125,7 +139,7 @@ export async function GET(request: Request) {
 
     const { data: jobs, error: jobsErr } = await supabase
       .from('jobs')
-      .select('id, company_id, customer_id, completed_at, title')
+      .select('id, company_id, customer_id, completed_at')
       .eq('company_id', companyId)
       .in('status', def.triggerStatuses)
       .not('completed_at', 'is', null)
@@ -150,6 +164,19 @@ export async function GET(request: Request) {
     const fromNumber = (settings.quo_phone_number as string) ?? ''
     const reviewLink = (settings.google_review_link as string) ?? ''
     const ownerId = company?.owner_user_id as string | undefined
+
+    // Refuse the whole batch when the message references a value this company
+    // hasn't configured. Checked before the claim loop so an unconfigured
+    // company doesn't burn its one-shot ledger claim on every eligible job:
+    // once the link is filled in, these jobs are still eligible next run.
+    const missingVars = requiredTemplateVars(config.messageBody, { reviewLink })
+    if (missingVars.length > 0) {
+      console.warn(
+        `[Automations cron] ${companyId} ${automationType}: not configured (${missingVars.join(', ')}), skipping batch`,
+      )
+      summary.deferred += jobs?.length ?? 0
+      continue
+    }
 
     for (const job of (jobs ?? []) as JobRow[]) {
       summary.considered += 1

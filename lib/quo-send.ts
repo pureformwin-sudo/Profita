@@ -175,7 +175,11 @@ export function renderTemplate(
     .replace(/\{\{\s*first_name\s*\}\}/gi, first)
     .replace(/\{\{\s*name\s*\}\}/gi, full)
     .replace(/\{\{\s*company\s*\}\}/gi, (vars.company ?? '').trim())
-    .replace(/\{\{\s*review_link\s*\}\}/gi, (vars.reviewLink ?? '').trim())
+    // Only substitute when there is an actual URL. Replacing with '' would
+    // erase the token, which reads as "fully rendered" to
+    // findUnrenderedTokens() and lets a review request go out with no link in
+    // it. Leaving the token intact is what makes that guard able to refuse.
+    .replace(/\{\{\s*review_link\s*\}\}/gi, (m) => (vars.reviewLink ?? '').trim() || m)
 }
 
 /** True when the template references a name that this recipient doesn't have. */
@@ -534,6 +538,18 @@ export async function sendToRecipient(
   }
   if (!base.normalizedPhone) {
     const o = { ...base, status: 'skipped' as const, skipReason: 'invalid_phone' }
+    await logOutbound(ctx, o, opts.batchId ?? null)
+    return o
+  }
+
+  // A nameless recipient renders "Hi , thanks again..." — fine to let a human
+  // notice and fix in the composer, not fine to mail out unattended.
+  if (opts.requireFullyRendered && templateNeedsMissingName(template, recipient.name)) {
+    const o = {
+      ...base,
+      status: 'skipped' as const,
+      skipReason: 'missing_recipient_name',
+    }
     await logOutbound(ctx, o, opts.batchId ?? null)
     return o
   }
