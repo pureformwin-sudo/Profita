@@ -23,6 +23,14 @@ export type AutomationTypeDef = {
   description: string
   /** Human-readable trigger, rendered in the UI so the rule is never implicit. */
   triggerLabel: string
+  /**
+   * Job statuses that keep a job eligible once its delay has elapsed.
+   *
+   * Includes the states *after* Completed, because a job can be invoiced or paid
+   * within the delay window and the review request should still go out — the
+   * work was finished either way.
+   */
+  triggerStatuses: string[]
   defaultBody: string
   defaultDelayMinutes: number
   defaultCooldownDays: number
@@ -58,6 +66,7 @@ export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
     description:
       'Asks a customer for a Google review shortly after their job is finished.',
     triggerLabel: "Sent after a job's status changes to Completed",
+    triggerStatuses: ['Completed', 'Invoiced', 'Paid', 'Closed'],
     defaultBody: REVIEW_REQUEST_BODY,
     defaultDelayMinutes: 90,
     defaultCooldownDays: 90,
@@ -89,6 +98,8 @@ export type AutomationConfig = {
   quietHoursStart: number
   quietHoursEnd: number
   cooldownDays: number
+  /** IANA zone the quiet-hours window is measured in. */
+  timezone: string
 }
 
 type AutomationRow = {
@@ -99,7 +110,16 @@ type AutomationRow = {
   quiet_hours_start?: number | null
   quiet_hours_end?: number | null
   cooldown_days?: number | null
+  timezone?: string | null
 }
+
+/**
+ * Quiet-hours default zone.
+ *
+ * Cron runs in UTC, so a company that has never set a zone still needs a real
+ * one or "8am-8pm" would be evaluated against UTC and fire overnight.
+ */
+export const DEFAULT_AUTOMATION_TIMEZONE = 'America/Los_Angeles'
 
 /**
  * Merge a stored row over its type defaults.
@@ -121,6 +141,7 @@ export function resolveAutomationConfig(
     quietHoursStart: row?.quiet_hours_start ?? 8,
     quietHoursEnd: row?.quiet_hours_end ?? 20,
     cooldownDays: row?.cooldown_days ?? type.defaultCooldownDays,
+    timezone: row?.timezone?.trim() || DEFAULT_AUTOMATION_TIMEZONE,
   }
 }
 
