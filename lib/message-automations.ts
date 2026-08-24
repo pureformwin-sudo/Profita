@@ -1,0 +1,146 @@
+/**
+ * Automation type registry.
+ *
+ * Each automation *type* (Review Request, and whatever comes next) is declared
+ * here in code: its trigger semantics, default copy, and which template tokens
+ * it can resolve. Per-company state — enabled, edited body, delay, quiet hours,
+ * cooldown — lives in the `message_automations` table.
+ *
+ * Adding a new automation later is one entry in AUTOMATION_TYPES plus a token
+ * resolver if it needs variables beyond the shared ones. The cron sweep, the
+ * settings UI, and the send path are all driven off this registry, so none of
+ * them need to change.
+ */
+
+export type AutomationTypeId = 'review_request'
+
+export type AutomationTokenId = 'first_name' | 'name' | 'company' | 'review_link'
+
+export type AutomationTypeDef = {
+  id: AutomationTypeId
+  label: string
+  /** One-line explanation shown in the automations list. */
+  description: string
+  /** Human-readable trigger, rendered in the UI so the rule is never implicit. */
+  triggerLabel: string
+  defaultBody: string
+  defaultDelayMinutes: number
+  defaultCooldownDays: number
+  /**
+   * Tokens this type knows how to fill. A body referencing anything outside
+   * this list is a configuration error, caught before a send goes out.
+   */
+  supportedTokens: AutomationTokenId[]
+  /**
+   * Tokens that must resolve to a non-empty value. `first_name` is deliberately
+   * NOT required — the send is skipped for a nameless recipient rather than
+   * failing the whole automation.
+   */
+  requiredTokens: AutomationTokenId[]
+}
+
+/**
+ * Default Review Request copy. Deliberately says nothing about referrals or
+ * bonuses; that belongs to a separate automation type, not this one.
+ */
+const REVIEW_REQUEST_BODY =
+  "Hi {{first_name}}, thanks again for choosing {{company}}! If you have a minute, " +
+  "we'd really appreciate a quick review — it helps a lot. {{review_link}}"
+
+export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
+  review_request: {
+    id: 'review_request',
+    label: 'Review Request',
+    description:
+      'Asks a customer for a Google review shortly after their job is finished.',
+    triggerLabel: "Sent after a job's status changes to Completed",
+    defaultBody: REVIEW_REQUEST_BODY,
+    defaultDelayMinutes: 90,
+    defaultCooldownDays: 90,
+    supportedTokens: ['first_name', 'name', 'company', 'review_link'],
+    // Without a real URL the customer would receive a dangling sentence, so
+    // this one is mandatory.
+    requiredTokens: ['review_link'],
+  },
+}
+
+export function listAutomationTypes(): AutomationTypeDef[] {
+  return Object.values(AUTOMATION_TYPES)
+}
+
+export function getAutomationType(id: string): AutomationTypeDef | null {
+  return AUTOMATION_TYPES[id as AutomationTypeId] ?? null
+}
+
+export function isAutomationTypeId(id: string): id is AutomationTypeId {
+  return id in AUTOMATION_TYPES
+}
+
+/** Per-company automation config as stored, with registry defaults applied. */
+export type AutomationConfig = {
+  automationType: AutomationTypeId
+  enabled: boolean
+  messageBody: string
+  delayMinutes: number
+  quietHoursStart: number
+  quietHoursEnd: number
+  cooldownDays: number
+}
+
+type AutomationRow = {
+  automation_type?: string | null
+  enabled?: boolean | null
+  message_body?: string | null
+  delay_minutes?: number | null
+  quiet_hours_start?: number | null
+  quiet_hours_end?: number | null
+  cooldown_days?: number | null
+}
+
+/**
+ * Merge a stored row over its type defaults.
+ *
+ * A company with no row yet resolves to defaults with `enabled: false`, so a
+ * new automation never starts texting on its own — it has to be turned on.
+ */
+export function resolveAutomationConfig(
+  type: AutomationTypeDef,
+  row: AutomationRow | null | undefined,
+): AutomationConfig {
+  const body = row?.message_body?.trim()
+
+  return {
+    automationType: type.id,
+    enabled: row?.enabled ?? false,
+    messageBody: body ? body : type.defaultBody,
+    delayMinutes: row?.delay_minutes ?? type.defaultDelayMinutes,
+    quietHoursStart: row?.quiet_hours_start ?? 8,
+    quietHoursEnd: row?.quiet_hours_end ?? 20,
+    cooldownDays: row?.cooldown_days ?? type.defaultCooldownDays,
+  }
+}
+
+const TOKEN_PATTERN = /\{\{\s*([a-z_]+)\s*\}\}/gi
+
+/** Every distinct token referenced by a body, lowercased. */
+export function extractTokens(body: string): string[] {
+  const found = new Set<string>()
+  for (const match of body.matchAll(TOKEN_PATTERN)) {
+    found.add(match[1].toLowerCase())
+  }
+  return [...found]
+}
+
+/**
+ * Tokens the body uses that this automation type cannot fill.
+ *
+ * Surfaced in the editor so a typo like `{{firstname}}` is caught while saving
+ * rather than shipping a literal `{{firstname}}` to a customer.
+ */
+export function findUnsupportedTokens(
+  type: AutomationTypeDef,
+  body: string,
+): string[] {
+  const supported = new Set<string>(type.supportedTokens)
+  return extractTokens(body).filter((t) => !supported.has(t))
+}

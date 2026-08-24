@@ -130,7 +130,12 @@ export async function resolveSendContext(): Promise<
  */
 export function renderTemplate(
   template: string,
-  vars: { name?: string | null; company?: string | null },
+  vars: {
+    name?: string | null
+    company?: string | null
+    /** Public review URL, used by the Review Request automation. */
+    reviewLink?: string | null
+  },
 ): string {
   const full = (vars.name ?? '').trim()
   const first = full ? full.split(/\s+/)[0] : ''
@@ -139,12 +144,28 @@ export function renderTemplate(
     .replace(/\{\{\s*first_name\s*\}\}/gi, first)
     .replace(/\{\{\s*name\s*\}\}/gi, full)
     .replace(/\{\{\s*company\s*\}\}/gi, (vars.company ?? '').trim())
+    .replace(/\{\{\s*review_link\s*\}\}/gi, (vars.reviewLink ?? '').trim())
 }
 
 /** True when the template references a name that this recipient doesn't have. */
 export function templateNeedsMissingName(template: string, name: string | null): boolean {
   const usesName = /\{\{\s*(first_)?name\s*\}\}/i.test(template)
   return usesName && !(name ?? '').trim()
+}
+
+/**
+ * Any `{{token}}` left in a rendered message.
+ *
+ * Automated sends have no human reviewing the draft, so this is the last guard
+ * before a customer receives a literal "{{review_link}}". Callers treat a
+ * non-empty result as a hard stop rather than sending anyway.
+ */
+export function findUnrenderedTokens(rendered: string): string[] {
+  const left = new Set<string>()
+  for (const match of rendered.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/gi)) {
+    left.add(match[1].toLowerCase())
+  }
+  return [...left]
 }
 
 /**
