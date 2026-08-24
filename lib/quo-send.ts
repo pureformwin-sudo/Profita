@@ -24,6 +24,32 @@ export type SendContext = {
   companyId: string
   /** The company's own Quo line, used as the `from` number. */
   fromNumber: string
+  /**
+   * Write audit/timeline rows with the service role instead of the cookie client.
+   *
+   * Required for background senders (cron automations): there is no session, so
+   * the cookie client has no `auth.uid()` and every logging insert is silently
+   * refused by RLS. The text would still go out while leaving no audit row and
+   * no timeline entry. Request paths leave this unset and stay under RLS.
+   */
+  useServiceRole?: boolean
+}
+
+/**
+ * Client used for logging writes.
+ *
+ * Background callers need the service role (see `SendContext.useServiceRole`);
+ * everyone else keeps the RLS-scoped cookie client.
+ */
+async function dbForLogging(ctx: SendContext) {
+  if (ctx.useServiceRole) {
+    return createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } },
+    )
+  }
+  return await createClient()
 }
 
 /**
@@ -53,6 +79,11 @@ export type SendOutcome = {
   error?: string
   quoMessageId?: string | null
   body?: string
+  /**
+   * Timeline row written for this send, when `activitySubject` was supplied.
+   * Automations store it so a ledger entry can point at the visible activity.
+   */
+  leadActivityId?: string | null
 }
 
 /**
@@ -345,7 +376,7 @@ async function logOutbound(
   batchId: string | null,
 ): Promise<void> {
   try {
-    const supabase = await createClient()
+    const supabase = await dbForLogging(ctx)
     const { error } = await supabase.from('quo_outbound_messages').insert({
       company_id: ctx.companyId,
       user_id: ctx.userId,
@@ -397,12 +428,12 @@ async function logSentTextActivity(
   o: SendOutcome,
   subject: { leadId?: string | null; customerId?: string | null; jobId?: string | null },
   repEmployeeId: string | null,
-): Promise<void> {
-  if (!subject.leadId && !subject.customerId && !subject.jobId) return
+): Promise<string | null> {
+  if (!subject.leadId && !subject.customerId && !subject.jobId) return null
 
   try {
-    const supabase = await createClient()
-    const { error } = await supabase.from('lead_activities').insert({
+    const supabase = await dbForLogging(ctx)
+    const { data, error } = await supabase.from('lead_activities').insert({
       user_id: ctx.userId,
       company_id: ctx.companyId,
       lead_id: subject.leadId ?? null,
@@ -421,16 +452,21 @@ async function logSentTextActivity(
         quo_object_id: o.quoMessageId ?? null,
       },
     })
+      .select('id')
+      .maybeSingle()
     if (error) {
       console.error(
         `[Quo send] TIMELINE WRITE FAILED (${error.code ?? 'unknown'}): ${error.message}`,
       )
+      return null
     }
+    return data?.id ?? null
   } catch (err) {
     console.warn(
       '[Quo send] Failed to write timeline activity:',
       err instanceof Error ? err.message : 'unknown',
     )
+    return null
   }
 }
 
@@ -465,6 +501,21 @@ export async function sendToRecipient(
       jobId?: string | null
     }
     repEmployeeId?: string | null
+    /**
+     * Extra template values beyond the recipient's name.
+     *
+     * Automations need this: the Review Request body contains `{{review_link}}`,
+     * and without a value here it would render as literal text in the customer's
+     * message. Manual sends omit it and behave exactly as before.
+     */
+    templateVars?: { company?: string | null; reviewLink?: string | null }
+    /**
+     * Refuse to send if any `{{token}}` is still unresolved after rendering.
+     *
+     * Automated sends have nobody proofreading the draft, so a missing value has
+     * to fail loudly instead of texting a customer a raw placeholder.
+     */
+    requireFullyRendered?: boolean
   } = {},
 ): Promise<SendOutcome> {
   const base: SendOutcome = {
@@ -487,7 +538,28 @@ export async function sendToRecipient(
     return o
   }
 
-  let body = renderTemplate(template, { name: recipient.name })
+  let body = renderTemplate(template, {
+    name: recipient.name,
+    company: opts.templateVars?.company ?? null,
+    reviewLink: opts.templateVars?.reviewLink ?? null,
+  })
+
+  // Stop before the Quo call, not after: once the API accepts the message the
+  // customer has already received the placeholder and nothing can undo it.
+  if (opts.requireFullyRendered) {
+    const unresolved = findUnrenderedTokens(body)
+    if (unresolved.length > 0) {
+      const o = {
+        ...base,
+        status: 'skipped' as const,
+        skipReason: `unresolved_template:${unresolved.join(',')}`,
+        body,
+      }
+      await logOutbound(ctx, o, opts.batchId ?? null)
+      return o
+    }
+  }
+
   if (opts.appendStopFooter && !/\bstop\b/i.test(body)) {
     body += STOP_FOOTER
   }
@@ -508,12 +580,13 @@ export async function sendToRecipient(
   // in the audit table; putting it on the customer's history would read as if we
   // had contacted them.
   if (outcome.status === 'sent' && opts.activitySubject) {
-    await logSentTextActivity(
+    const activityId = await logSentTextActivity(
       ctx,
       outcome,
       opts.activitySubject,
       opts.repEmployeeId ?? null,
     )
+    if (activityId) outcome.leadActivityId = activityId
   }
 
   return outcome

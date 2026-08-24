@@ -42,10 +42,14 @@ export type AutomationTypeDef = {
 /**
  * Default Review Request copy. Deliberately says nothing about referrals or
  * bonuses; that belongs to a separate automation type, not this one.
+ *
+ * The brand name is written out rather than using {{company}}, because the
+ * company record holds the legal entity ("Lucent Holdings LLC") while customers
+ * know the trading name. {{company}} is still available if a body wants it.
  */
 const REVIEW_REQUEST_BODY =
-  "Hi {{first_name}}, thanks again for choosing {{company}}! If you have a minute, " +
-  "we'd really appreciate a quick review — it helps a lot. {{review_link}}"
+  'Hi {{first_name}}, thanks again for choosing Lucent Exterior Cleaning! If you ' +
+  "have a minute, we'd really appreciate a quick review — it helps a lot. {{review_link}}"
 
 export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
   review_request: {
