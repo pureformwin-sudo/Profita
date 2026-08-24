@@ -6,6 +6,7 @@
  * of what has already been sent.
  */
 
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import {
   listAutomationTypes,
@@ -97,6 +98,81 @@ export async function saveAutomation(
     }
     throw new Error(`Failed to save automation: ${error.message}`)
   }
+}
+
+/** Key inside `companies.settings` holding the public review URL. */
+const REVIEW_LINK_KEY = 'google_review_link'
+
+/**
+ * Service-role client for `companies.settings` access.
+ *
+ * RLS on `companies` is `owner_user_id = auth.uid()`, so a sales_rep or crew
+ * member cannot read the row at all — through the user client they would see an
+ * empty review link and be told to fill in a field that is already set. Callers
+ * pass a `companyId` they have already proven membership of via
+ * `resolveSendContext()`, so this only widens the read to their own tenant.
+ * This mirrors what `resolveSendContext()` does for the Quo number.
+ */
+function companySettingsClient() {
+  return createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  )
+}
+
+/**
+ * The company's public review URL.
+ *
+ * Stored on `companies.settings` rather than the user-scoped `settings` table
+ * because the cron sender has no session — it resolves everything by company.
+ */
+export async function getReviewLink(companyId: string): Promise<string> {
+  const { data, error } = await companySettingsClient()
+    .from('companies')
+    .select('settings')
+    .eq('id', companyId)
+    .maybeSingle()
+
+  if (error) throw new Error(`Failed to load review link: ${error.message}`)
+
+  const settings = (data?.settings ?? {}) as Record<string, unknown>
+  return typeof settings[REVIEW_LINK_KEY] === 'string'
+    ? (settings[REVIEW_LINK_KEY] as string)
+    : ''
+}
+
+/**
+ * Save the review URL, preserving every other key in `settings`.
+ *
+ * Read-modify-write is required here: `settings` also carries the company's Quo
+ * line, and writing a fresh object would silently disable all texting.
+ */
+export async function saveReviewLink(
+  companyId: string,
+  link: string,
+): Promise<void> {
+  const admin = companySettingsClient()
+
+  const { data, error: readErr } = await admin
+    .from('companies')
+    .select('settings')
+    .eq('id', companyId)
+    .maybeSingle()
+
+  if (readErr) throw new Error(`Failed to read settings: ${readErr.message}`)
+
+  const settings = { ...((data?.settings ?? {}) as Record<string, unknown>) }
+  const trimmed = link.trim()
+  if (trimmed) settings[REVIEW_LINK_KEY] = trimmed
+  else delete settings[REVIEW_LINK_KEY]
+
+  const { error } = await admin
+    .from('companies')
+    .update({ settings })
+    .eq('id', companyId)
+
+  if (error) throw new Error(`Failed to save review link: ${error.message}`)
 }
 
 export type AutomationSendRow = {

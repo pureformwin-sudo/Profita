@@ -15,6 +15,11 @@ export async function updateSession(request: NextRequest) {
     // session cookie, so without this they get 307'd to /login and every delivery
     // fails. Each route authenticates itself by verifying the provider's signature.
     || pathname.startsWith('/api/webhooks/')
+    // Same reasoning for scheduled jobs: Vercel Cron invokes these with a
+    // CRON_SECRET bearer token and no session cookie, so without this they are
+    // 307'd to /login and every scheduled run silently no-ops. Each cron route
+    // authenticates itself by checking that token.
+    || pathname.startsWith('/api/cron/')
 
   let supabaseResponse = NextResponse.next({ request })
 

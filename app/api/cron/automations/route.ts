@@ -98,6 +98,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: autoErr.message }, { status: 500 })
   }
 
+  console.log('[v0] enabled automations found:', automations?.length ?? 0, JSON.stringify(automations))
+
   for (const row of automations ?? []) {
     const automationType = row.automation_type as AutomationTypeId
     const def = getAutomationType(automationType)

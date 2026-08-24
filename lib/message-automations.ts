@@ -34,6 +34,10 @@ export type AutomationTypeDef = {
   defaultBody: string
   defaultDelayMinutes: number
   defaultCooldownDays: number
+  /** Local-time send window: inclusive start hour, exclusive end hour. */
+  defaultQuietHoursStart: number
+  defaultQuietHoursEnd: number
+  defaultTimezone: string
   /**
    * Tokens this type knows how to fill. A body referencing anything outside
    * this list is a configuration error, caught before a send goes out.
@@ -46,6 +50,17 @@ export type AutomationTypeDef = {
    */
   requiredTokens: AutomationTokenId[]
 }
+
+/**
+ * Quiet-hours default zone.
+ *
+ * Cron runs in UTC, so a company that has never set a zone still needs a real
+ * one or "8am-8pm" would be evaluated against UTC and fire overnight.
+ *
+ * Declared before AUTOMATION_TYPES because the table references it at module
+ * init; a `const` below it would be in its temporal dead zone.
+ */
+export const DEFAULT_AUTOMATION_TIMEZONE = 'America/Los_Angeles'
 
 /**
  * Default Review Request copy. Deliberately says nothing about referrals or
@@ -70,6 +85,9 @@ export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
     defaultBody: REVIEW_REQUEST_BODY,
     defaultDelayMinutes: 90,
     defaultCooldownDays: 90,
+    defaultQuietHoursStart: 8,
+    defaultQuietHoursEnd: 20,
+    defaultTimezone: DEFAULT_AUTOMATION_TIMEZONE,
     supportedTokens: ['first_name', 'name', 'company', 'review_link'],
     // Without a real URL the customer would receive a dangling sentence, so
     // this one is mandatory.
@@ -114,14 +132,6 @@ type AutomationRow = {
 }
 
 /**
- * Quiet-hours default zone.
- *
- * Cron runs in UTC, so a company that has never set a zone still needs a real
- * one or "8am-8pm" would be evaluated against UTC and fire overnight.
- */
-export const DEFAULT_AUTOMATION_TIMEZONE = 'America/Los_Angeles'
-
-/**
  * Merge a stored row over its type defaults.
  *
  * A company with no row yet resolves to defaults with `enabled: false`, so a
@@ -138,10 +148,10 @@ export function resolveAutomationConfig(
     enabled: row?.enabled ?? false,
     messageBody: body ? body : type.defaultBody,
     delayMinutes: row?.delay_minutes ?? type.defaultDelayMinutes,
-    quietHoursStart: row?.quiet_hours_start ?? 8,
-    quietHoursEnd: row?.quiet_hours_end ?? 20,
+    quietHoursStart: row?.quiet_hours_start ?? type.defaultQuietHoursStart,
+    quietHoursEnd: row?.quiet_hours_end ?? type.defaultQuietHoursEnd,
     cooldownDays: row?.cooldown_days ?? type.defaultCooldownDays,
-    timezone: row?.timezone?.trim() || DEFAULT_AUTOMATION_TIMEZONE,
+    timezone: row?.timezone?.trim() || type.defaultTimezone,
   }
 }
 
