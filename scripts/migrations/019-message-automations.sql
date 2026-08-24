@@ -109,6 +109,12 @@ create table if not exists public.message_automations (
 create index if not exists message_automations_company_idx
   on public.message_automations (company_id);
 
+drop trigger if exists message_automations_set_updated_at on public.message_automations;
+create trigger message_automations_set_updated_at
+  before update on public.message_automations
+  for each row
+  execute function public.update_updated_at_column();
+
 alter table public.message_automations enable row level security;
 
 drop policy if exists message_automations_company_select on public.message_automations;
