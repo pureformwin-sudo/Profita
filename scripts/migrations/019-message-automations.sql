@@ -90,6 +90,10 @@ create table if not exists public.message_automations (
   quiet_hours_start integer not null default 8,
   quiet_hours_end integer not null default 20,
 
+  -- IANA zone the window above is measured in. Cron runs in UTC, so without this
+  -- an "8am-8pm" rule would fire at midnight local time.
+  timezone text not null default 'America/Los_Angeles',
+
   -- Don't re-ask the same customer inside this many days.
   cooldown_days integer not null default 90,
 
