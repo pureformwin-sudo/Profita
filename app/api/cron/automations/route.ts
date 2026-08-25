@@ -1,8 +1,9 @@
 /**
  * Sweeps due message automations and sends them.
  *
- * Runs on a schedule (see vercel.json). Each pass finds jobs whose completion
- * delay has elapsed, claims them so overlapping runs can't double-send, and
+ * Runs on a schedule (see vercel.json). Each pass finds jobs whose trigger delay
+ * has elapsed — measured from completion or from booking, depending on the
+ * automation's anchor — claims them so overlapping runs can't double-send, and
  * sends through the same Quo path the manual Messages composer uses.
  */
 
@@ -53,56 +54,8 @@ type JobRow = {
   customer_id: string | null
   /** Present for completion-anchored automations. */
   completed_at?: string | null
-  /** Scheduled service date (YYYY-MM-DD), used by date-anchored automations. */
-  date?: string | null
-}
-
-/**
- * Today's date in a zone, as YYYY-MM-DD.
- *
- * `jobs.date` is a bare `date` with no time or offset, so comparing it against a
- * UTC timestamp would shift the boundary by up to a day and fire "tomorrow"
- * reminders on the wrong side of midnight. Comparing calendar strings in the
- * company's own zone is what keeps "tomorrow" literally true.
- */
-function localDateKey(at: Date, timeZone: string): string {
-  try {
-    // en-CA formats as YYYY-MM-DD, which matches Postgres `date` text output.
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(at)
-  } catch {
-    return at.toISOString().slice(0, 10)
-  }
-}
-
-/** Minutes elapsed since local midnight in the given zone. */
-function localMinutesSinceMidnight(at: Date, timeZone: string): number {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      hour: 'numeric',
-      minute: 'numeric',
-      hour12: false,
-    }).formatToParts(at)
-    const h = Number(parts.find((p) => p.type === 'hour')?.value ?? '0') % 24
-    const m = Number(parts.find((p) => p.type === 'minute')?.value ?? '0')
-    return h * 60 + m
-  } catch {
-    return at.getUTCHours() * 60 + at.getUTCMinutes()
-  }
-}
-
-/** Calendar date N days from `at`, as YYYY-MM-DD in the given zone. */
-function shiftLocalDateKey(at: Date, timeZone: string, days: number): string {
-  const key = localDateKey(at, timeZone)
-  // Parse as UTC noon so the ±days arithmetic can't slip across a boundary via DST.
-  const base = new Date(`${key}T12:00:00Z`)
-  base.setUTCDate(base.getUTCDate() + days)
-  return base.toISOString().slice(0, 10)
+  /** Present for booking-anchored automations. */
+  created_at?: string | null
 }
 
 /** Local hour (0-23) in the given IANA zone. */
@@ -188,48 +141,28 @@ export async function GET(request: Request) {
       continue
     }
 
-    let jobs: JobRow[] | null = null
-    let jobsErr: { message: string } | null = null
+    // Which timestamp column the delay is measured from. Both anchors are
+    // elapsed-time windows, so the query shape is identical either way.
+    const anchorColumn =
+      def.triggerAnchor === 'job_created' ? 'created_at' : 'completed_at'
 
-    if (def.triggerAnchor === 'day_before_job_date') {
-      // "Tomorrow" is only true when sent today for a job dated tomorrow, so
-      // this matches one exact calendar date rather than a rolling window.
-      // delayMinutes is a send *time* here (minutes past local midnight); before
-      // that time the batch waits for a later pass on the same day.
-      const nowMinutes = localMinutesSinceMidnight(now, config.timezone)
-      if (nowMinutes < config.delayMinutes) {
-        summary.deferred += 1
-        continue
-      }
+    const dueBefore = new Date(now.getTime() - config.delayMinutes * 60_000)
+    // The same backstop for both anchors: if the cron is paused for a week, the
+    // accumulated backlog must not all fire at once when it resumes.
+    const notOlderThan = new Date(now.getTime() - MAX_AGE_HOURS * 3_600_000)
 
-      const targetDate = shiftLocalDateKey(now, config.timezone, 1)
-      const res = await supabase
-        .from('jobs')
-        .select('id, company_id, customer_id, date')
-        .eq('company_id', companyId)
-        .in('status', def.triggerStatuses)
-        .eq('date', targetDate)
-        .order('id', { ascending: true })
-        .limit(BATCH_LIMIT)
-      jobs = (res.data ?? []) as JobRow[]
-      jobsErr = res.error
-    } else {
-      const dueBefore = new Date(now.getTime() - config.delayMinutes * 60_000)
-      const notOlderThan = new Date(now.getTime() - MAX_AGE_HOURS * 3_600_000)
+    const { data: jobsData, error: jobsErr } = await supabase
+      .from('jobs')
+      .select(`id, company_id, customer_id, ${anchorColumn}`)
+      .eq('company_id', companyId)
+      .in('status', def.triggerStatuses)
+      .not(anchorColumn, 'is', null)
+      .lte(anchorColumn, dueBefore.toISOString())
+      .gte(anchorColumn, notOlderThan.toISOString())
+      .order(anchorColumn, { ascending: true })
+      .limit(BATCH_LIMIT)
 
-      const res = await supabase
-        .from('jobs')
-        .select('id, company_id, customer_id, completed_at')
-        .eq('company_id', companyId)
-        .in('status', def.triggerStatuses)
-        .not('completed_at', 'is', null)
-        .lte('completed_at', dueBefore.toISOString())
-        .gte('completed_at', notOlderThan.toISOString())
-        .order('completed_at', { ascending: true })
-        .limit(BATCH_LIMIT)
-      jobs = (res.data ?? []) as JobRow[]
-      jobsErr = res.error
-    }
+    const jobs = (jobsData ?? []) as JobRow[]
 
     if (jobsErr) {
       console.error('[Automations cron] Job query failed:', jobsErr.message)

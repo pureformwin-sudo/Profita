@@ -26,13 +26,11 @@ export type AutomationTokenId =
  *
  * - `job_completed` — counts forward from `jobs.completed_at`, so `delayMinutes`
  *   means "this long after the work finished".
- * - `day_before_job_date` — anchored to the calendar day before the job's
- *   scheduled `date`, so `delayMinutes` means "this many minutes past local
- *   midnight on that day" (i.e. a send *time*, not an elapsed duration). Copy
- *   that says "tomorrow" is only truthful on that one day, which is exactly why
- *   this anchor exists.
+ * - `job_created` — counts forward from `jobs.created_at`, so `delayMinutes`
+ *   means "this long after the job was added or scheduled in the system". Fires
+ *   at booking time, independent of when the appointment itself falls.
  */
-export type AutomationTriggerAnchor = 'job_completed' | 'day_before_job_date'
+export type AutomationTriggerAnchor = 'job_completed' | 'job_created'
 
 export type AutomationTypeDef = {
   id: AutomationTypeId
@@ -43,13 +41,10 @@ export type AutomationTypeDef = {
   triggerLabel: string
   triggerAnchor: AutomationTriggerAnchor
   /**
-   * How `delayMinutes` should be presented and interpreted.
-   *
-   * `elapsed` = a duration after the trigger event. `time_of_day` = minutes past
-   * local midnight. The UI reads this to label the control correctly instead of
-   * hardcoding "after completion" for every type.
+   * Noun for the trigger event, used to label the delay control ("30 minutes
+   * after booking") instead of hardcoding "after completion" for every type.
    */
-  delayKind: 'elapsed' | 'time_of_day'
+  delayNoun: string
   /**
    * Job statuses that keep a job eligible once its delay has elapsed.
    *
@@ -104,10 +99,14 @@ const REVIEW_REQUEST_BODY =
 /**
  * Default Booking Confirmation copy.
  *
- * Says "tomorrow" with no name token, as specified. The literal "tomorrow" is
- * what forces the `day_before_job_date` anchor: sent on any other day the
- * sentence would be false, and for ~69% of this company's bookings (same-day or
- * multi-week-out) a create-time send would have been wrong.
+ * Generic with no name token, as specified.
+ *
+ * Caveat worth knowing before editing: this fires at booking time, so the
+ * literal "tomorrow" is only accurate when the job happens to be booked one day
+ * out (~31% of this company's history). Same-day and far-future bookings will
+ * receive a "tomorrow" that doesn't match their appointment. Swapping the word
+ * for a neutral phrase, or moving to a date-anchored trigger, are the two ways
+ * to make it always true — both are deliberate product choices, not bugs.
  */
 const BOOKING_CONFIRMATION_BODY =
   'Hi, thanks for choosing Lucent Exterior Cleaning. We will be at your home ' +
@@ -122,7 +121,7 @@ export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
       'Asks a customer for a Google review shortly after their job is finished.',
     triggerLabel: "Sent after a job's status changes to Completed",
     triggerAnchor: 'job_completed',
-    delayKind: 'elapsed',
+    delayNoun: 'completion',
     triggerStatuses: ['Completed', 'Invoiced', 'Paid', 'Closed'],
     defaultBody: REVIEW_REQUEST_BODY,
     defaultDelayMinutes: 90,
@@ -139,18 +138,18 @@ export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
     id: 'booking_confirmation',
     label: 'Booking Confirmation',
     description:
-      'Reminds a customer the day before their scheduled job, with a link to your work.',
-    triggerLabel: 'Sent the day before a job’s scheduled date',
-    triggerAnchor: 'day_before_job_date',
-    // Minutes past local midnight, not elapsed time — see AutomationTriggerAnchor.
-    delayKind: 'time_of_day',
-    // Only jobs still awaiting service. A job already Completed or Closed must
-    // never be told someone is arriving tomorrow.
+      'Confirms the booking right after a job is scheduled, with a link to your work.',
+    triggerLabel: 'Sent after a job is scheduled or created',
+    triggerAnchor: 'job_created',
+    delayNoun: 'booking',
+    // Only jobs still awaiting service. A job created already Completed (logged
+    // after the fact) must never be sent a booking confirmation.
     triggerStatuses: ['Scheduled', 'On the way', 'In progress'],
     defaultBody: BOOKING_CONFIRMATION_BODY,
-    // 17:00 local — late enough to be the evening-before reminder, early enough
-    // to sit inside the 8am-8pm quiet-hours window.
-    defaultDelayMinutes: 17 * 60,
+    // Near-instant: 2 minutes rather than 0, so a job saved and then immediately
+    // corrected or deleted doesn't text the customer about a booking that no
+    // longer exists. The sweep interval dominates this anyway.
+    defaultDelayMinutes: 2,
     // Per-job, not per-customer: a customer with two bookings in one week should
     // get a confirmation for each. Duplicate protection is the per-job ledger.
     defaultCooldownDays: 0,

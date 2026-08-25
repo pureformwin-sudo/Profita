@@ -59,37 +59,35 @@ const TIMEZONES = [
 ]
 
 /**
- * Delay presets for `elapsed`-kind automations, in minutes.
+ * Delay presets in minutes, measured from the automation's trigger event.
  *
- * Only valid for durations measured from the trigger event. Time-of-day
- * automations use TIME_OF_DAY_OPTIONS instead — labelling 1020 as "17 hours
- * after completion" would describe the wrong behavior entirely.
+ * The trailing noun comes from the registry (`delayNoun`), so the same list
+ * reads correctly as "after completion" or "after booking".
  */
-const DELAY_OPTIONS = [
+const DELAY_STEPS = [
   { value: 0, label: 'Immediately' },
-  { value: 60, label: '1 hour after completion' },
-  { value: 90, label: '1.5 hours after completion' },
-  { value: 120, label: '2 hours after completion' },
-  { value: 240, label: '4 hours after completion' },
-  { value: 1440, label: '1 day after completion' },
+  { value: 2, label: '2 minutes after' },
+  { value: 15, label: '15 minutes after' },
+  { value: 30, label: '30 minutes after' },
+  { value: 60, label: '1 hour after' },
+  { value: 90, label: '1.5 hours after' },
+  { value: 120, label: '2 hours after' },
+  { value: 240, label: '4 hours after' },
+  { value: 1440, label: '1 day after' },
 ]
+
+function delayOptionsFor(noun: string) {
+  return DELAY_STEPS.map((step) => ({
+    value: step.value,
+    label: step.value === 0 ? step.label : `${step.label} ${noun}`,
+  }))
+}
 
 function hourLabel(hour: number): string {
   if (hour === 0 || hour === 24) return '12 AM'
   if (hour === 12) return '12 PM'
   return hour < 12 ? `${hour} AM` : `${hour - 12} PM`
 }
-
-/**
- * Send-time presets for `time_of_day` automations, as minutes past midnight.
- *
- * Restricted to on-the-hour values inside a plausible messaging window; the
- * quiet-hours setting still clamps the actual send.
- */
-const TIME_OF_DAY_OPTIONS = Array.from({ length: 15 }, (_, i) => {
-  const hour = i + 6 // 6 AM through 8 PM
-  return { value: hour * 60, label: `${hourLabel(hour)} the day before` }
-})
 
 export function AutomationsPanel() {
   const [configs, setConfigs] = useState<AutomationConfig[]>([])
@@ -203,8 +201,7 @@ export function AutomationsPanel() {
           config.messageBody.includes('{{website}}')
         const missingWebsite = needsWebsite && !website.trim()
         const badTokens = findUnsupportedTokens(def, config.messageBody)
-        const isTimeOfDay = def.delayKind === 'time_of_day'
-        const delayOptions = isTimeOfDay ? TIME_OF_DAY_OPTIONS : DELAY_OPTIONS
+        const delayOptions = delayOptionsFor(def.delayNoun)
 
         return (
           <Card key={config.automationType}>
@@ -320,9 +317,7 @@ export function AutomationsPanel() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor={`delay-${config.automationType}`}>
-                    {isTimeOfDay ? 'Send time' : 'Send delay'}
-                  </Label>
+                  <Label htmlFor={`delay-${config.automationType}`}>Send delay</Label>
                   <Select
                     value={String(config.delayMinutes)}
                     onValueChange={(v) =>
@@ -409,9 +404,7 @@ export function AutomationsPanel() {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                {isTimeOfDay
-                  ? 'A send falling outside this window waits for the next opening rather than texting overnight. '
-                  : 'A job finished outside this window waits for the next opening rather than texting overnight. '}
+                {`A send falling outside this window waits for the next opening rather than texting overnight. `}
                 {config.cooldownDays > 0
                   ? `Each customer receives this at most once per ${config.cooldownDays} days, and once per job.`
                   : 'Sent once per job — a customer with two bookings gets one message for each.'}
