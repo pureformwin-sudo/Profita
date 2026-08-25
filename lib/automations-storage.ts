@@ -175,6 +175,40 @@ export async function saveReviewLink(
   if (error) throw new Error(`Failed to save review link: ${error.message}`)
 }
 
+/**
+ * The company's public website URL, used by `{{website}}`.
+ *
+ * This is a real `companies` column (not a `settings` key), so it may already be
+ * populated from the business profile — the automations tab reuses that value
+ * rather than asking for the same URL twice. Service-role for the same RLS
+ * reason as `getReviewLink`.
+ */
+export async function getWebsite(companyId: string): Promise<string> {
+  const { data, error } = await companySettingsClient()
+    .from('companies')
+    .select('website')
+    .eq('id', companyId)
+    .maybeSingle()
+
+  if (error) throw new Error(`Failed to load website: ${error.message}`)
+  return (data?.website ?? '').trim()
+}
+
+/** Save the company website URL. */
+export async function saveWebsite(
+  companyId: string,
+  website: string,
+): Promise<void> {
+  const trimmed = website.trim()
+
+  const { error } = await companySettingsClient()
+    .from('companies')
+    .update({ website: trimmed || null })
+    .eq('id', companyId)
+
+  if (error) throw new Error(`Failed to save website: ${error.message}`)
+}
+
 export type AutomationSendRow = {
   id: string
   automationType: string

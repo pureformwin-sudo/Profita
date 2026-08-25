@@ -101,6 +101,19 @@ const REVIEW_REQUEST_BODY =
   'Hi {{first_name}}, thanks again for choosing Lucent Exterior Cleaning! If you ' +
   "have a minute, we'd really appreciate a quick review — it helps a lot. {{review_link}}"
 
+/**
+ * Default Booking Confirmation copy.
+ *
+ * Says "tomorrow" with no name token, as specified. The literal "tomorrow" is
+ * what forces the `day_before_job_date` anchor: sent on any other day the
+ * sentence would be false, and for ~69% of this company's bookings (same-day or
+ * multi-week-out) a create-time send would have been wrong.
+ */
+const BOOKING_CONFIRMATION_BODY =
+  'Hi, thanks for choosing Lucent Exterior Cleaning. We will be at your home ' +
+  'tomorrow to take care of everything. Check out our reviews and past work ' +
+  'here: {{website}}'
+
 export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
   review_request: {
     id: 'review_request',
@@ -108,6 +121,8 @@ export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
     description:
       'Asks a customer for a Google review shortly after their job is finished.',
     triggerLabel: "Sent after a job's status changes to Completed",
+    triggerAnchor: 'job_completed',
+    delayKind: 'elapsed',
     triggerStatuses: ['Completed', 'Invoiced', 'Paid', 'Closed'],
     defaultBody: REVIEW_REQUEST_BODY,
     defaultDelayMinutes: 90,
@@ -119,6 +134,33 @@ export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
     // Without a real URL the customer would receive a dangling sentence, so
     // this one is mandatory.
     requiredTokens: ['review_link'],
+  },
+  booking_confirmation: {
+    id: 'booking_confirmation',
+    label: 'Booking Confirmation',
+    description:
+      'Reminds a customer the day before their scheduled job, with a link to your work.',
+    triggerLabel: 'Sent the day before a job’s scheduled date',
+    triggerAnchor: 'day_before_job_date',
+    // Minutes past local midnight, not elapsed time — see AutomationTriggerAnchor.
+    delayKind: 'time_of_day',
+    // Only jobs still awaiting service. A job already Completed or Closed must
+    // never be told someone is arriving tomorrow.
+    triggerStatuses: ['Scheduled', 'On the way', 'In progress'],
+    defaultBody: BOOKING_CONFIRMATION_BODY,
+    // 17:00 local — late enough to be the evening-before reminder, early enough
+    // to sit inside the 8am-8pm quiet-hours window.
+    defaultDelayMinutes: 17 * 60,
+    // Per-job, not per-customer: a customer with two bookings in one week should
+    // get a confirmation for each. Duplicate protection is the per-job ledger.
+    defaultCooldownDays: 0,
+    defaultQuietHoursStart: 8,
+    defaultQuietHoursEnd: 20,
+    defaultTimezone: DEFAULT_AUTOMATION_TIMEZONE,
+    // No name tokens: the copy is intentionally generic.
+    supportedTokens: ['company', 'website'],
+    // The trailing "here:" would dangle without a URL.
+    requiredTokens: ['website'],
   },
 }
 

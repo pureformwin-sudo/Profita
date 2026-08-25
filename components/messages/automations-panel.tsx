@@ -58,8 +58,15 @@ const TIMEZONES = [
   'America/New_York',
 ]
 
-/** Delay presets, in minutes. Matches how the trigger is described to the user. */
+/**
+ * Delay presets for `elapsed`-kind automations, in minutes.
+ *
+ * Only valid for durations measured from the trigger event. Time-of-day
+ * automations use TIME_OF_DAY_OPTIONS instead — labelling 1020 as "17 hours
+ * after completion" would describe the wrong behavior entirely.
+ */
 const DELAY_OPTIONS = [
+  { value: 0, label: 'Immediately' },
   { value: 60, label: '1 hour after completion' },
   { value: 90, label: '1.5 hours after completion' },
   { value: 120, label: '2 hours after completion' },
@@ -73,9 +80,21 @@ function hourLabel(hour: number): string {
   return hour < 12 ? `${hour} AM` : `${hour - 12} PM`
 }
 
+/**
+ * Send-time presets for `time_of_day` automations, as minutes past midnight.
+ *
+ * Restricted to on-the-hour values inside a plausible messaging window; the
+ * quiet-hours setting still clamps the actual send.
+ */
+const TIME_OF_DAY_OPTIONS = Array.from({ length: 15 }, (_, i) => {
+  const hour = i + 6 // 6 AM through 8 PM
+  return { value: hour * 60, label: `${hourLabel(hour)} the day before` }
+})
+
 export function AutomationsPanel() {
   const [configs, setConfigs] = useState<AutomationConfig[]>([])
   const [reviewLink, setReviewLink] = useState('')
+  const [website, setWebsite] = useState('')
   const [history, setHistory] = useState<HistoryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -91,6 +110,7 @@ export function AutomationsPanel() {
       if (!res.ok) throw new Error(data?.error ?? 'Failed to load automations')
       setConfigs(data.configs ?? [])
       setReviewLink(data.reviewLink ?? '')
+      setWebsite(data.website ?? '')
       setHistory(data.history ?? [])
       setNeedsSetup(Boolean(data.needsSetup))
     } catch (err) {
@@ -116,7 +136,7 @@ export function AutomationsPanel() {
       const res = await fetch('/api/automations', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...config, reviewLink }),
+        body: JSON.stringify({ ...config, reviewLink, website }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? 'Failed to save')
@@ -178,7 +198,13 @@ export function AutomationsPanel() {
           def.requiredTokens.includes('review_link') &&
           config.messageBody.includes('{{review_link}}')
         const missingReviewLink = needsReviewLink && !reviewLink.trim()
+        const needsWebsite =
+          def.requiredTokens.includes('website') &&
+          config.messageBody.includes('{{website}}')
+        const missingWebsite = needsWebsite && !website.trim()
         const badTokens = findUnsupportedTokens(def, config.messageBody)
+        const isTimeOfDay = def.delayKind === 'time_of_day'
+        const delayOptions = isTimeOfDay ? TIME_OF_DAY_OPTIONS : DELAY_OPTIONS
 
         return (
           <Card key={config.automationType}>
@@ -266,9 +292,37 @@ export function AutomationsPanel() {
                 </div>
               )}
 
+              {needsWebsite && (
+                <div className="space-y-2">
+                  <Label htmlFor="website-link">Website link</Label>
+                  <Input
+                    id="website-link"
+                    value={website}
+                    onChange={(e) => setWebsite(e.target.value)}
+                    placeholder="https://example.com"
+                  />
+                  {missingWebsite ? (
+                    <p className="text-xs text-destructive flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+                      <span>
+                        Required — sends are skipped until this is filled in, so no
+                        customer receives a broken link.
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Replaces {'{{website}}'} in the message. Shared with your business
+                      profile.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor={`delay-${config.automationType}`}>Send delay</Label>
+                  <Label htmlFor={`delay-${config.automationType}`}>
+                    {isTimeOfDay ? 'Send time' : 'Send delay'}
+                  </Label>
                   <Select
                     value={String(config.delayMinutes)}
                     onValueChange={(v) =>
@@ -279,7 +333,7 @@ export function AutomationsPanel() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {DELAY_OPTIONS.map((o) => (
+                      {delayOptions.map((o) => (
                         <SelectItem key={o.value} value={String(o.value)}>
                           {o.label}
                         </SelectItem>
@@ -355,9 +409,12 @@ export function AutomationsPanel() {
               </div>
 
               <p className="text-xs text-muted-foreground">
-                A job finished outside this window waits for the next opening rather
-                than texting overnight. Each customer is asked at most once per{' '}
-                {config.cooldownDays} days, and once per job.
+                {isTimeOfDay
+                  ? 'A send falling outside this window waits for the next opening rather than texting overnight. '
+                  : 'A job finished outside this window waits for the next opening rather than texting overnight. '}
+                {config.cooldownDays > 0
+                  ? `Each customer receives this at most once per ${config.cooldownDays} days, and once per job.`
+                  : 'Sent once per job — a customer with two bookings gets one message for each.'}
               </p>
 
               <div className="flex justify-end">
@@ -406,6 +463,12 @@ export function AutomationsPanel() {
                     <span className="text-sm truncate">
                       {row.customerName ?? 'Unknown customer'}
                     </span>
+                    {/* With more than one automation type, the customer name
+                        alone doesn't say which message was sent. */}
+                    <Badge variant="outline" className="shrink-0 text-xs font-normal">
+                      {getAutomationType(row.automationType)?.label ??
+                        row.automationType}
+                    </Badge>
                     {row.detail && (
                       <span className="text-xs text-muted-foreground truncate">
                         {row.detail}

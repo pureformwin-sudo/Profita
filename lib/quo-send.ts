@@ -166,6 +166,8 @@ export function renderTemplate(
     company?: string | null
     /** Public review URL, used by the Review Request automation. */
     reviewLink?: string | null
+    /** Public site URL, used by the Booking Confirmation automation. */
+    website?: string | null
   },
 ): string {
   const full = (vars.name ?? '').trim()
@@ -180,6 +182,9 @@ export function renderTemplate(
     // findUnrenderedTokens() and lets a review request go out with no link in
     // it. Leaving the token intact is what makes that guard able to refuse.
     .replace(/\{\{\s*review_link\s*\}\}/gi, (m) => (vars.reviewLink ?? '').trim() || m)
+    // Same empty-value rule as review_link: leave the token in place so the
+    // unresolved-token guard can refuse the send.
+    .replace(/\{\{\s*website\s*\}\}/gi, (m) => (vars.website ?? '').trim() || m)
 }
 
 /** True when the template references a name that this recipient doesn't have. */
@@ -512,7 +517,11 @@ export async function sendToRecipient(
      * and without a value here it would render as literal text in the customer's
      * message. Manual sends omit it and behave exactly as before.
      */
-    templateVars?: { company?: string | null; reviewLink?: string | null }
+    templateVars?: {
+      company?: string | null
+      reviewLink?: string | null
+      website?: string | null
+    }
     /**
      * Refuse to send if any `{{token}}` is still unresolved after rendering.
      *
@@ -558,6 +567,7 @@ export async function sendToRecipient(
     name: recipient.name,
     company: opts.templateVars?.company ?? null,
     reviewLink: opts.templateVars?.reviewLink ?? null,
+    website: opts.templateVars?.website ?? null,
   })
 
   // Stop before the Quo call, not after: once the API accepts the message the

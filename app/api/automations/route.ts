@@ -9,10 +9,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { resolveSendContext } from '@/lib/quo-send'
 import {
   getReviewLink,
+  getWebsite,
   loadAutomations,
   loadRecentAutomationSends,
   saveAutomation,
   saveReviewLink,
+  saveWebsite,
 } from '@/lib/automations-storage'
 import { getAutomationType, type AutomationTypeId } from '@/lib/message-automations'
 
@@ -24,13 +26,14 @@ export async function GET() {
     }
     const { ctx } = resolved
 
-    const [{ configs, needsSetup }, reviewLink, history] = await Promise.all([
+    const [{ configs, needsSetup }, reviewLink, website, history] = await Promise.all([
       loadAutomations(ctx.companyId),
       getReviewLink(ctx.companyId),
+      getWebsite(ctx.companyId),
       loadRecentAutomationSends(ctx.companyId),
     ])
 
-    return NextResponse.json({ configs, needsSetup, reviewLink, history })
+    return NextResponse.json({ configs, needsSetup, reviewLink, website, history })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load automations'
     console.error('[Automations API] GET failed:', message)
@@ -56,6 +59,7 @@ export async function PUT(req: NextRequest) {
       cooldownDays?: number
       timezone?: string
       reviewLink?: string
+      website?: string
     } | null
 
     if (!payload?.automationType) {
@@ -103,6 +107,9 @@ export async function PUT(req: NextRequest) {
     // failed to save would just produce skipped sends.
     if (payload.reviewLink !== undefined) {
       await saveReviewLink(ctx.companyId, payload.reviewLink)
+    }
+    if (payload.website !== undefined) {
+      await saveWebsite(ctx.companyId, payload.website)
     }
 
     await saveAutomation(ctx.companyId, ctx.userId, def.id, {
