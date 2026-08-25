@@ -72,8 +72,13 @@ create index if not exists lead_scores_company_idx
 -- write with 42501, silently. This app reads, inserts, updates AND deletes
 -- these rows, so every command gets a policy.
 --
--- Scoping goes through company_members (not companies.owner_user_id) so invited
--- admins/dispatchers can use the feature, not just the owner.
+-- Scoping goes through public.get_user_company_ids(), the same helper every
+-- other company-scoped table uses. Do NOT hand-roll a company_members subquery
+-- here: an earlier version of this migration did, and because company OWNERS do
+-- not necessarily have a company_members row, the owner could never insert.
+-- Every estimate was paid for at the API and then rejected with a 403
+-- "new row violates row-level security policy". The helper covers owners and
+-- active members both.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 alter table public.lead_scores enable row level security;
@@ -81,37 +86,27 @@ alter table public.lead_scores enable row level security;
 drop policy if exists lead_scores_select on public.lead_scores;
 create policy lead_scores_select on public.lead_scores
   for select using (
-    company_id in (
-      select company_id from public.company_members
-      where user_id = auth.uid() and status = 'active'
-    )
+    company_id in (select company_id from public.get_user_company_ids())
   );
 
 drop policy if exists lead_scores_insert on public.lead_scores;
 create policy lead_scores_insert on public.lead_scores
   for insert with check (
-    company_id in (
-      select company_id from public.company_members
-      where user_id = auth.uid() and status = 'active'
-    )
+    company_id in (select company_id from public.get_user_company_ids())
   );
 
 drop policy if exists lead_scores_update on public.lead_scores;
 create policy lead_scores_update on public.lead_scores
   for update using (
-    company_id in (
-      select company_id from public.company_members
-      where user_id = auth.uid() and status = 'active'
-    )
+    company_id in (select company_id from public.get_user_company_ids())
+  ) with check (
+    company_id in (select company_id from public.get_user_company_ids())
   );
 
 drop policy if exists lead_scores_delete on public.lead_scores;
 create policy lead_scores_delete on public.lead_scores
   for delete using (
-    company_id in (
-      select company_id from public.company_members
-      where user_id = auth.uid() and status = 'active'
-    )
+    company_id in (select company_id from public.get_user_company_ids())
   );
 
 -- Keep updated_at honest.
