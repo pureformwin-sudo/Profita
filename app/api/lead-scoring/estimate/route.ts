@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
       basis?: string
       estimateUsd?: number | null
       searchCount?: number
+      localityInferred?: string | null
       reason?: string
     }> = []
 
@@ -136,6 +137,7 @@ export async function POST(req: NextRequest) {
           basis: estimate.basis,
           estimateUsd: estimate.estimateUsd,
           searchCount: estimate.searchCount,
+          localityInferred: estimate.localityInferred,
         })
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Estimate failed'

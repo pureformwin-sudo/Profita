@@ -103,9 +103,8 @@ function HomeValueCell({ lead }: { lead: ScoredLead }) {
           </Badge>
         </TooltipTrigger>
         <TooltipContent className="max-w-72">
-          This address has no city, state, or ZIP, so it cannot identify a property or
-          even a neighbourhood. Add the missing detail on the customer record, or set a
-          manual value.
+          This is not a usable street address, so no city can be assumed for it. Fix it
+          on the customer record, or set a manual value.
         </TooltipContent>
       </Tooltip>
     )
@@ -127,6 +126,30 @@ function HomeValueCell({ lead }: { lead: ScoredLead }) {
         >
           {basisLabel(est?.valueBasis ?? null)}
         </Badge>
+        {est?.localityAssumed && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge
+                variant="outline"
+                className="w-fit cursor-help border-dashed text-[10px] font-normal uppercase tracking-wide text-muted-foreground"
+              >
+                {est.localityInferred ? `Assumed ${est.localityInferred}` : 'City assumed'}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-80">
+              <p className="text-xs leading-relaxed">
+                {'This address did not name a city, so it was priced against '}
+                {est.localityInferred ?? 'the service area'}
+                {' using your service-area rule (Clovis / Fresno, Madera secondary).'}
+              </p>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {est.localityAmbiguous
+                  ? 'The street matched more than one service-area city, so this is an area figure rather than a specific property.'
+                  : 'Confidence is capped below a fully stated address. Use the override if the city is wrong.'}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        )}
         {est?.confidenceNote && (
           <Tooltip>
             <TooltipTrigger asChild>
