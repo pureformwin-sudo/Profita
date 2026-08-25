@@ -236,7 +236,7 @@ export default function LeadScoringPage() {
               <p className="font-mono text-2xl font-semibold tabular-nums">
                 {stats.blocked}
               </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">address too vague</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">not a usable address</p>
             </CardContent>
           </Card>
           <Card>
@@ -265,8 +265,12 @@ export default function LeadScoringPage() {
             <strong className="font-medium">Property match</strong> was resolved to a
             specific address; an <strong className="font-medium">Area estimate</strong> is
             a neighbourhood median because the street address could not be pinned down.
-            Lifetime spend is your own data — collected invoice payments plus delivered
-            job value. Where an estimate looks wrong, set a manual override and it wins.
+            Addresses that name no city are priced against your service area — Clovis or
+            Fresno first, Madera if the street points there — and carry an{' '}
+            <strong className="font-medium">Assumed city</strong> badge with confidence
+            capped below a fully stated address. Lifetime spend is your own data:
+            collected invoice payments plus delivered job value. Where an estimate looks
+            wrong, set a manual override and it wins.
           </AlertDescription>
         </Alert>
 

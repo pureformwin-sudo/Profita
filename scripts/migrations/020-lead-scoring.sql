@@ -28,6 +28,15 @@ create table if not exists public.lead_scores (
   -- property we *believe* is theirs, so the UI must say so.
   locality_assumed boolean not null default false,
 
+  -- Which service-area city the rule resolved to (e.g. 'Clovis, CA'). Null when
+  -- the address carried its own locality. Recorded so a wrong inference is
+  -- visible and correctable rather than buried inside the estimate.
+  locality_inferred text,
+
+  -- True when the street plausibly matched more than one service-area city, so
+  -- no single property could be pinned down. Forces an area-level estimate.
+  locality_ambiguous boolean not null default false,
+
   -- Exact address string sent to the model. Kept so a later estimate can be
   -- compared against a corrected address, and so the number is auditable.
   address_used text,

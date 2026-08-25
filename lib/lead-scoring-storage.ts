@@ -38,6 +38,8 @@ type LeadScoreRow = {
   confidence: string | null
   confidence_note: string | null
   locality_assumed: boolean | null
+  locality_inferred: string | null
+  locality_ambiguous: boolean | null
   address_used: string | null
   model: string | null
   estimated_at: string | null
@@ -63,6 +65,8 @@ function toRecord(row: LeadScoreRow): LeadScoreRecord {
     confidence: (row.confidence as ValueConfidence | null) ?? null,
     confidenceNote: row.confidence_note,
     localityAssumed: row.locality_assumed ?? false,
+    localityInferred: row.locality_inferred ?? null,
+    localityAmbiguous: row.locality_ambiguous ?? false,
     addressUsed: row.address_used,
     model: row.model,
     estimatedAt: row.estimated_at,
@@ -170,6 +174,8 @@ export async function saveEstimate(
     confidence: ValueConfidence
     note: string
     localityAssumed: boolean
+    localityInferred: string | null
+    localityAmbiguous: boolean
     model: string
     addressUsed: string
   },
@@ -187,6 +193,8 @@ export async function saveEstimate(
       confidence: estimate.confidence,
       confidence_note: estimate.note,
       locality_assumed: estimate.localityAssumed,
+      locality_inferred: estimate.localityInferred,
+      locality_ambiguous: estimate.localityAmbiguous,
       address_used: estimate.addressUsed,
       model: estimate.model,
       estimated_at: new Date().toISOString(),

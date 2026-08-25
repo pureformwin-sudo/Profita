@@ -33,6 +33,10 @@ export interface LeadScoreRecord {
   confidenceNote: string | null
   /** True when the city/state was inferred rather than present in the address. */
   localityAssumed: boolean
+  /** Service-area city the rule resolved to, e.g. 'Clovis, CA'. */
+  localityInferred: string | null
+  /** True when the street matched several service-area cities. */
+  localityAmbiguous: boolean
   addressUsed: string | null
   model: string | null
   estimatedAt: string | null
@@ -68,6 +72,11 @@ export type LeadLimitation =
   | 'not_estimated'
   /** Only an area median was available, so the figure is neighborhood-wide. */
   | 'area_only'
+  /**
+   * Valued against an assumed service-area city because the address named none.
+   * The figure is property-specific, but rests on the city being right.
+   */
+  | 'locality_inferred'
 
 /**
  * Weighting between the two signals.
@@ -150,19 +159,30 @@ export function compositeScore(
   return { score, valueComponent, spendComponent }
 }
 
+/** Street suffixes that mark a line as an actual address rather than a name. */
+const STREET_SUFFIX =
+  /\b(ave|avenue|st|street|rd|road|dr|drive|ln|lane|ct|court|way|blvd|boulevard|cir|circle|pl|place|ter|terrace|trail|trl|pkwy|parkway|hwy|highway)\b\.?/i
+
 /**
  * Whether an address has any hope of being valued.
  *
- * Requires a leading street number plus a locality signal (comma, ZIP, state,
- * or a known service-area city). "Philip Carrol" and bare "Scott" fail here and
- * are never sent to the model — cheaper than a round trip, and it keeps junk
- * rows visibly flagged instead of silently guessed.
+ * A locality is NOT required. The company works a known service area (Clovis /
+ * Fresno, with Madera secondary), so a bare street line like "3096 Kenosha Ave"
+ * can be resolved against those cities — 165 of the 177 locality-less addresses
+ * on the book are exactly this shape, and excluding them would strand most of
+ * the customer list.
+ *
+ * What is still required is a street *shape*: a leading house number plus either
+ * a street suffix or an explicit locality. "Philip Carrol" and bare "Scott" fail
+ * here and are never sent to the model — attaching a service-area city to a
+ * person's name would invent a property that was never in the record.
  */
 export function isAddressValuable(address: string | null | undefined): boolean {
   const raw = (address ?? '').trim()
   if (raw.length < 6) return false
   if (!/^\d+\s+\S/.test(raw)) return false
   return (
+    STREET_SUFFIX.test(raw) ||
     raw.includes(',') ||
     /\b\d{5}\b/.test(raw) ||
     /\b(ca|california)\b/i.test(raw) ||
@@ -219,10 +239,19 @@ export function resolveEffectiveValue(
     }
   }
 
+  // An area figure is the weaker caveat, so it wins the label when both apply.
+  // Otherwise a property match built on an assumed city is flagged as inferred.
+  const limitation: LeadLimitation | null =
+    record.valueBasis === 'area'
+      ? 'area_only'
+      : record.localityAssumed
+        ? 'locality_inferred'
+        : null
+
   return {
     effectiveHomeValue: Number(record.estimatedHomeValue),
     isOverridden: false,
-    limitation: record.valueBasis === 'area' ? 'area_only' : null,
+    limitation,
   }
 }
 
