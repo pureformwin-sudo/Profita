@@ -14,7 +14,7 @@ import {
   resolveAutomationConfig,
   type AutomationTypeId,
 } from '@/lib/message-automations'
-import { sendToRecipient, type SendContext } from '@/lib/quo-send'
+import { formatJobDate, sendToRecipient, type SendContext } from '@/lib/quo-send'
 
 /**
  * Never send for work finished longer ago than this.
@@ -29,10 +29,15 @@ const MAX_AGE_HOURS = 48
 const BATCH_LIMIT = 50
 
 /**
- * Template values the body needs but the company hasn't set.
+ * Company-level template values the body needs but the company hasn't set.
  *
  * Pre-flight version of `findUnrenderedTokens`: catches the missing config
  * before any job is claimed, so nothing is consumed while unconfigured.
+ *
+ * Only company-wide settings belong here. Per-job values like `{{job_date}}`
+ * cannot be checked at batch level — one job missing a date says nothing about
+ * the others — so those are enforced per send by `requireFullyRendered`, which
+ * skips just that job.
  */
 function requiredTemplateVars(
   body: string,
@@ -56,6 +61,8 @@ type JobRow = {
   completed_at?: string | null
   /** Present for booking-anchored automations. */
   created_at?: string | null
+  /** Scheduled service date (YYYY-MM-DD), rendered as {{job_date}}. */
+  date?: string | null
 }
 
 /** Local hour (0-23) in the given IANA zone. */
@@ -153,7 +160,9 @@ export async function GET(request: Request) {
 
     const { data: jobsData, error: jobsErr } = await supabase
       .from('jobs')
-      .select(`id, company_id, customer_id, ${anchorColumn}`)
+      // `date` is always selected: it feeds {{job_date}}, and it's a distinct
+      // column from whichever timestamp the delay is anchored to.
+      .select(`id, company_id, customer_id, date, ${anchorColumn}`)
       .eq('company_id', companyId)
       .in('status', def.triggerStatuses)
       .not(anchorColumn, 'is', null)
@@ -313,6 +322,10 @@ export async function GET(request: Request) {
               company: (company?.name as string) ?? null,
               reviewLink,
               website,
+              // Per-job, so it's resolved here rather than once per batch.
+              // A job with no date leaves this null, the token stays
+              // unresolved, and requireFullyRendered skips only that job.
+              jobDate: formatJobDate(job.date),
             },
             // Without this a missing review link would text the customer a
             // literal "{{review_link}}".

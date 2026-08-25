@@ -20,6 +20,7 @@ export type AutomationTokenId =
   | 'company'
   | 'review_link'
   | 'website'
+  | 'job_date'
 
 /**
  * What the automation's clock is measured from.
@@ -101,17 +102,15 @@ const REVIEW_REQUEST_BODY =
  *
  * Generic with no name token, as specified.
  *
- * Caveat worth knowing before editing: this fires at booking time, so the
- * literal "tomorrow" is only accurate when the job happens to be booked one day
- * out (~31% of this company's history). Same-day and far-future bookings will
- * receive a "tomorrow" that doesn't match their appointment. Swapping the word
- * for a neutral phrase, or moving to a date-anchored trigger, are the two ways
- * to make it always true — both are deliberate product choices, not bugs.
+ * Uses {{job_date}} rather than the word "tomorrow": this fires at booking time,
+ * so "tomorrow" was only accurate for jobs booked one day out (~31% of this
+ * company's history) and actively misleading for same-day and far-future
+ * bookings. The token renders as "August 26th", correct at any lead time.
  */
 const BOOKING_CONFIRMATION_BODY =
-  'Hi, thanks for choosing Lucent Exterior Cleaning. We will be at your home ' +
-  'tomorrow to take care of everything. Check out our reviews and past work ' +
-  'here: {{website}}'
+  'Hi, thanks for choosing Lucent Exterior Cleaning. We will be at your home on ' +
+  '{{job_date}} to take care of everything. See our reviews and past work here: ' +
+  '{{website}}'
 
 export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
   review_request: {
@@ -157,9 +156,10 @@ export const AUTOMATION_TYPES: Record<AutomationTypeId, AutomationTypeDef> = {
     defaultQuietHoursEnd: 20,
     defaultTimezone: DEFAULT_AUTOMATION_TIMEZONE,
     // No name tokens: the copy is intentionally generic.
-    supportedTokens: ['company', 'website'],
-    // The trailing "here:" would dangle without a URL.
-    requiredTokens: ['website'],
+    supportedTokens: ['company', 'website', 'job_date'],
+    // The trailing "here:" would dangle without a URL, and a job with no date
+    // set must not send "at your home on  to take care of everything".
+    requiredTokens: ['website', 'job_date'],
   },
 }
 

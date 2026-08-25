@@ -154,6 +154,48 @@ export async function resolveSendContext(): Promise<
 }
 
 /**
+ * Format a job's scheduled date the way a person would say it: "August 26th".
+ *
+ * `jobs.date` is a bare `date` — no time, no offset. Feeding it to the local-time
+ * Date constructor would shift it backwards in any negative-offset zone and
+ * print the day *before* the appointment, so the parts are read in UTC to match
+ * how Postgres stored them.
+ *
+ * Returns null for missing or unparseable input so the caller leaves the token
+ * unresolved and the send guard can refuse, rather than texting a customer a
+ * confidently wrong date.
+ */
+export function formatJobDate(date: string | null | undefined): string | null {
+  const raw = (date ?? '').trim()
+  if (!raw) return null
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw)
+  if (!match) return null
+
+  const [, y, m, d] = match
+  const parsed = new Date(`${y}-${m}-${d}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return null
+
+  const month = parsed.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
+  const day = parsed.getUTCDate()
+
+  // 11th/12th/13th are the cases the naive last-digit rule gets wrong.
+  const rem = day % 100
+  const suffix =
+    rem >= 11 && rem <= 13
+      ? 'th'
+      : day % 10 === 1
+        ? 'st'
+        : day % 10 === 2
+          ? 'nd'
+          : day % 10 === 3
+            ? 'rd'
+            : 'th'
+
+  return `${month} ${day}${suffix}`
+}
+
+/**
  * Fill {{placeholders}} in a message template.
  *
  * Unknown placeholders are left visible on purpose: silently blanking them
@@ -168,6 +210,11 @@ export function renderTemplate(
     reviewLink?: string | null
     /** Public site URL, used by the Booking Confirmation automation. */
     website?: string | null
+    /**
+     * Pre-formatted service date (e.g. "August 26th"), used by the Booking
+     * Confirmation automation. Pass the output of `formatJobDate`.
+     */
+    jobDate?: string | null
   },
 ): string {
   const full = (vars.name ?? '').trim()
@@ -185,6 +232,9 @@ export function renderTemplate(
     // Same empty-value rule as review_link: leave the token in place so the
     // unresolved-token guard can refuse the send.
     .replace(/\{\{\s*website\s*\}\}/gi, (m) => (vars.website ?? '').trim() || m)
+    // Also left intact when absent — a job with no date must not produce
+    // "We will be at your home  to take care of everything."
+    .replace(/\{\{\s*job_date\s*\}\}/gi, (m) => (vars.jobDate ?? '').trim() || m)
 }
 
 /** True when the template references a name that this recipient doesn't have. */
@@ -521,6 +571,7 @@ export async function sendToRecipient(
       company?: string | null
       reviewLink?: string | null
       website?: string | null
+      jobDate?: string | null
     }
     /**
      * Refuse to send if any `{{token}}` is still unresolved after rendering.
@@ -568,6 +619,7 @@ export async function sendToRecipient(
     company: opts.templateVars?.company ?? null,
     reviewLink: opts.templateVars?.reviewLink ?? null,
     website: opts.templateVars?.website ?? null,
+    jobDate: opts.templateVars?.jobDate ?? null,
   })
 
   // Stop before the Quo call, not after: once the API accepts the message the

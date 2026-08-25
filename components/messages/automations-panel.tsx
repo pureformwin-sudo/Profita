@@ -252,6 +252,13 @@ export function AutomationsPanel() {
                   Available placeholders:{' '}
                   {def.supportedTokens.map((t) => `{{${t}}}`).join(', ')}
                 </p>
+                {def.supportedTokens.includes('job_date') && (
+                  <p className="text-xs text-muted-foreground">
+                    {'{{job_date}}'} becomes the job&apos;s scheduled date, written
+                    naturally — for example {'"August 26th"'}. A job with no date set
+                    is skipped rather than sent with a blank.
+                  </p>
+                )}
                 {badTokens.length > 0 && (
                   <p className="text-xs text-destructive flex items-start gap-1.5">
                     <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
