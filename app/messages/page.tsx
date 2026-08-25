@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AutomationsPanel } from '@/components/messages/automations-panel'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -216,6 +218,18 @@ export default function MessagesPage() {
             </Badge>
           )}
         </header>
+
+        <Tabs defaultValue="compose" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="compose">Compose</TabsTrigger>
+            <TabsTrigger value="automations">Automations</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="automations" className="mt-0">
+            <AutomationsPanel />
+          </TabsContent>
+
+          <TabsContent value="compose" className="space-y-6 mt-0">
 
         {loadError && (
           <Card className="border-destructive/50">
@@ -453,6 +467,8 @@ export default function MessagesPage() {
             </CardContent>
           </Card>
         )}
+          </TabsContent>
+        </Tabs>
       </div>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

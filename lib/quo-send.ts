@@ -24,6 +24,32 @@ export type SendContext = {
   companyId: string
   /** The company's own Quo line, used as the `from` number. */
   fromNumber: string
+  /**
+   * Write audit/timeline rows with the service role instead of the cookie client.
+   *
+   * Required for background senders (cron automations): there is no session, so
+   * the cookie client has no `auth.uid()` and every logging insert is silently
+   * refused by RLS. The text would still go out while leaving no audit row and
+   * no timeline entry. Request paths leave this unset and stay under RLS.
+   */
+  useServiceRole?: boolean
+}
+
+/**
+ * Client used for logging writes.
+ *
+ * Background callers need the service role (see `SendContext.useServiceRole`);
+ * everyone else keeps the RLS-scoped cookie client.
+ */
+async function dbForLogging(ctx: SendContext) {
+  if (ctx.useServiceRole) {
+    return createServiceClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } },
+    )
+  }
+  return await createClient()
 }
 
 /**
@@ -53,6 +79,11 @@ export type SendOutcome = {
   error?: string
   quoMessageId?: string | null
   body?: string
+  /**
+   * Timeline row written for this send, when `activitySubject` was supplied.
+   * Automations store it so a ledger entry can point at the visible activity.
+   */
+  leadActivityId?: string | null
 }
 
 /**
@@ -123,6 +154,48 @@ export async function resolveSendContext(): Promise<
 }
 
 /**
+ * Format a job's scheduled date the way a person would say it: "August 26th".
+ *
+ * `jobs.date` is a bare `date` — no time, no offset. Feeding it to the local-time
+ * Date constructor would shift it backwards in any negative-offset zone and
+ * print the day *before* the appointment, so the parts are read in UTC to match
+ * how Postgres stored them.
+ *
+ * Returns null for missing or unparseable input so the caller leaves the token
+ * unresolved and the send guard can refuse, rather than texting a customer a
+ * confidently wrong date.
+ */
+export function formatJobDate(date: string | null | undefined): string | null {
+  const raw = (date ?? '').trim()
+  if (!raw) return null
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw)
+  if (!match) return null
+
+  const [, y, m, d] = match
+  const parsed = new Date(`${y}-${m}-${d}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) return null
+
+  const month = parsed.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
+  const day = parsed.getUTCDate()
+
+  // 11th/12th/13th are the cases the naive last-digit rule gets wrong.
+  const rem = day % 100
+  const suffix =
+    rem >= 11 && rem <= 13
+      ? 'th'
+      : day % 10 === 1
+        ? 'st'
+        : day % 10 === 2
+          ? 'nd'
+          : day % 10 === 3
+            ? 'rd'
+            : 'th'
+
+  return `${month} ${day}${suffix}`
+}
+
+/**
  * Fill {{placeholders}} in a message template.
  *
  * Unknown placeholders are left visible on purpose: silently blanking them
@@ -130,7 +203,19 @@ export async function resolveSendContext(): Promise<
  */
 export function renderTemplate(
   template: string,
-  vars: { name?: string | null; company?: string | null },
+  vars: {
+    name?: string | null
+    company?: string | null
+    /** Public review URL, used by the Review Request automation. */
+    reviewLink?: string | null
+    /** Public site URL, used by the Booking Confirmation automation. */
+    website?: string | null
+    /**
+     * Pre-formatted service date (e.g. "August 26th"), used by the Booking
+     * Confirmation automation. Pass the output of `formatJobDate`.
+     */
+    jobDate?: string | null
+  },
 ): string {
   const full = (vars.name ?? '').trim()
   const first = full ? full.split(/\s+/)[0] : ''
@@ -139,12 +224,38 @@ export function renderTemplate(
     .replace(/\{\{\s*first_name\s*\}\}/gi, first)
     .replace(/\{\{\s*name\s*\}\}/gi, full)
     .replace(/\{\{\s*company\s*\}\}/gi, (vars.company ?? '').trim())
+    // Only substitute when there is an actual URL. Replacing with '' would
+    // erase the token, which reads as "fully rendered" to
+    // findUnrenderedTokens() and lets a review request go out with no link in
+    // it. Leaving the token intact is what makes that guard able to refuse.
+    .replace(/\{\{\s*review_link\s*\}\}/gi, (m) => (vars.reviewLink ?? '').trim() || m)
+    // Same empty-value rule as review_link: leave the token in place so the
+    // unresolved-token guard can refuse the send.
+    .replace(/\{\{\s*website\s*\}\}/gi, (m) => (vars.website ?? '').trim() || m)
+    // Also left intact when absent — a job with no date must not produce
+    // "We will be at your home  to take care of everything."
+    .replace(/\{\{\s*job_date\s*\}\}/gi, (m) => (vars.jobDate ?? '').trim() || m)
 }
 
 /** True when the template references a name that this recipient doesn't have. */
 export function templateNeedsMissingName(template: string, name: string | null): boolean {
   const usesName = /\{\{\s*(first_)?name\s*\}\}/i.test(template)
   return usesName && !(name ?? '').trim()
+}
+
+/**
+ * Any `{{token}}` left in a rendered message.
+ *
+ * Automated sends have no human reviewing the draft, so this is the last guard
+ * before a customer receives a literal "{{review_link}}". Callers treat a
+ * non-empty result as a hard stop rather than sending anyway.
+ */
+export function findUnrenderedTokens(rendered: string): string[] {
+  const left = new Set<string>()
+  for (const match of rendered.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/gi)) {
+    left.add(match[1].toLowerCase())
+  }
+  return [...left]
 }
 
 /**
@@ -324,7 +435,7 @@ async function logOutbound(
   batchId: string | null,
 ): Promise<void> {
   try {
-    const supabase = await createClient()
+    const supabase = await dbForLogging(ctx)
     const { error } = await supabase.from('quo_outbound_messages').insert({
       company_id: ctx.companyId,
       user_id: ctx.userId,
@@ -376,12 +487,12 @@ async function logSentTextActivity(
   o: SendOutcome,
   subject: { leadId?: string | null; customerId?: string | null; jobId?: string | null },
   repEmployeeId: string | null,
-): Promise<void> {
-  if (!subject.leadId && !subject.customerId && !subject.jobId) return
+): Promise<string | null> {
+  if (!subject.leadId && !subject.customerId && !subject.jobId) return null
 
   try {
-    const supabase = await createClient()
-    const { error } = await supabase.from('lead_activities').insert({
+    const supabase = await dbForLogging(ctx)
+    const { data, error } = await supabase.from('lead_activities').insert({
       user_id: ctx.userId,
       company_id: ctx.companyId,
       lead_id: subject.leadId ?? null,
@@ -400,16 +511,21 @@ async function logSentTextActivity(
         quo_object_id: o.quoMessageId ?? null,
       },
     })
+      .select('id')
+      .maybeSingle()
     if (error) {
       console.error(
         `[Quo send] TIMELINE WRITE FAILED (${error.code ?? 'unknown'}): ${error.message}`,
       )
+      return null
     }
+    return data?.id ?? null
   } catch (err) {
     console.warn(
       '[Quo send] Failed to write timeline activity:',
       err instanceof Error ? err.message : 'unknown',
     )
+    return null
   }
 }
 
@@ -444,6 +560,26 @@ export async function sendToRecipient(
       jobId?: string | null
     }
     repEmployeeId?: string | null
+    /**
+     * Extra template values beyond the recipient's name.
+     *
+     * Automations need this: the Review Request body contains `{{review_link}}`,
+     * and without a value here it would render as literal text in the customer's
+     * message. Manual sends omit it and behave exactly as before.
+     */
+    templateVars?: {
+      company?: string | null
+      reviewLink?: string | null
+      website?: string | null
+      jobDate?: string | null
+    }
+    /**
+     * Refuse to send if any `{{token}}` is still unresolved after rendering.
+     *
+     * Automated sends have nobody proofreading the draft, so a missing value has
+     * to fail loudly instead of texting a customer a raw placeholder.
+     */
+    requireFullyRendered?: boolean
   } = {},
 ): Promise<SendOutcome> {
   const base: SendOutcome = {
@@ -466,7 +602,42 @@ export async function sendToRecipient(
     return o
   }
 
-  let body = renderTemplate(template, { name: recipient.name })
+  // A nameless recipient renders "Hi , thanks again..." — fine to let a human
+  // notice and fix in the composer, not fine to mail out unattended.
+  if (opts.requireFullyRendered && templateNeedsMissingName(template, recipient.name)) {
+    const o = {
+      ...base,
+      status: 'skipped' as const,
+      skipReason: 'missing_recipient_name',
+    }
+    await logOutbound(ctx, o, opts.batchId ?? null)
+    return o
+  }
+
+  let body = renderTemplate(template, {
+    name: recipient.name,
+    company: opts.templateVars?.company ?? null,
+    reviewLink: opts.templateVars?.reviewLink ?? null,
+    website: opts.templateVars?.website ?? null,
+    jobDate: opts.templateVars?.jobDate ?? null,
+  })
+
+  // Stop before the Quo call, not after: once the API accepts the message the
+  // customer has already received the placeholder and nothing can undo it.
+  if (opts.requireFullyRendered) {
+    const unresolved = findUnrenderedTokens(body)
+    if (unresolved.length > 0) {
+      const o = {
+        ...base,
+        status: 'skipped' as const,
+        skipReason: `unresolved_template:${unresolved.join(',')}`,
+        body,
+      }
+      await logOutbound(ctx, o, opts.batchId ?? null)
+      return o
+    }
+  }
+
   if (opts.appendStopFooter && !/\bstop\b/i.test(body)) {
     body += STOP_FOOTER
   }
@@ -487,12 +658,13 @@ export async function sendToRecipient(
   // in the audit table; putting it on the customer's history would read as if we
   // had contacted them.
   if (outcome.status === 'sent' && opts.activitySubject) {
-    await logSentTextActivity(
+    const activityId = await logSentTextActivity(
       ctx,
       outcome,
       opts.activitySubject,
       opts.repEmployeeId ?? null,
     )
+    if (activityId) outcome.leadActivityId = activityId
   }
 
   return outcome
