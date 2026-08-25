@@ -12,9 +12,27 @@
  * them need to change.
  */
 
-export type AutomationTypeId = 'review_request'
+export type AutomationTypeId = 'review_request' | 'booking_confirmation'
 
-export type AutomationTokenId = 'first_name' | 'name' | 'company' | 'review_link'
+export type AutomationTokenId =
+  | 'first_name'
+  | 'name'
+  | 'company'
+  | 'review_link'
+  | 'website'
+
+/**
+ * What the automation's clock is measured from.
+ *
+ * - `job_completed` — counts forward from `jobs.completed_at`, so `delayMinutes`
+ *   means "this long after the work finished".
+ * - `day_before_job_date` — anchored to the calendar day before the job's
+ *   scheduled `date`, so `delayMinutes` means "this many minutes past local
+ *   midnight on that day" (i.e. a send *time*, not an elapsed duration). Copy
+ *   that says "tomorrow" is only truthful on that one day, which is exactly why
+ *   this anchor exists.
+ */
+export type AutomationTriggerAnchor = 'job_completed' | 'day_before_job_date'
 
 export type AutomationTypeDef = {
   id: AutomationTypeId
@@ -23,6 +41,15 @@ export type AutomationTypeDef = {
   description: string
   /** Human-readable trigger, rendered in the UI so the rule is never implicit. */
   triggerLabel: string
+  triggerAnchor: AutomationTriggerAnchor
+  /**
+   * How `delayMinutes` should be presented and interpreted.
+   *
+   * `elapsed` = a duration after the trigger event. `time_of_day` = minutes past
+   * local midnight. The UI reads this to label the control correctly instead of
+   * hardcoding "after completion" for every type.
+   */
+  delayKind: 'elapsed' | 'time_of_day'
   /**
    * Job statuses that keep a job eligible once its delay has elapsed.
    *
