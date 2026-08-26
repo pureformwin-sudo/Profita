@@ -159,13 +159,16 @@ export function SignaturePad({ defaultName = '', disabled, onChange }: Signature
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="signer-name">Full legal name</Label>
+        <Label htmlFor="signer-name" className="text-[#1a1a1a]">
+          Full legal name
+        </Label>
         <Input
           id="signer-name"
           value={name}
           disabled={disabled}
           autoComplete="name"
           placeholder="Jane Doe"
+          className="border-[#cbd5e1] bg-white text-[#1a1a1a] placeholder:text-[#94a3b8] dark:bg-white"
           onChange={(e) => {
             setName(e.target.value)
             emit({ name: e.target.value })
@@ -184,11 +187,22 @@ export function SignaturePad({ defaultName = '', disabled, onChange }: Signature
           emit({ kind: next })
         }}
       >
-        <TabsList className="w-full">
-          <TabsTrigger value="typed" disabled={disabled} className="flex-1">
+        {/* The Tabs primitive ships `dark:` variants that would render a dark
+            toggle inside this white sheet, with the active segment nearly
+            indistinguishable. Pin both light and dark to the same light scheme. */}
+        <TabsList className="w-full bg-[#e2e8f0]">
+          <TabsTrigger
+            value="typed"
+            disabled={disabled}
+            className="flex-1 text-[#475569] data-[state=active]:bg-white data-[state=active]:text-[#0f172a] dark:text-[#475569] dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-white dark:data-[state=active]:text-[#0f172a]"
+          >
             Type it
           </TabsTrigger>
-          <TabsTrigger value="drawn" disabled={disabled} className="flex-1">
+          <TabsTrigger
+            value="drawn"
+            disabled={disabled}
+            className="flex-1 text-[#475569] data-[state=active]:bg-white data-[state=active]:text-[#0f172a] dark:text-[#475569] dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-white dark:data-[state=active]:text-[#0f172a]"
+          >
             Draw it
           </TabsTrigger>
         </TabsList>
@@ -232,6 +246,7 @@ export function SignaturePad({ defaultName = '', disabled, onChange }: Signature
                 size="sm"
                 onClick={clearCanvas}
                 disabled={disabled || !hasDrawing}
+                className="text-[#475569] hover:bg-[#f1f5f9] hover:text-[#0f172a] dark:text-[#475569] dark:hover:bg-[#f1f5f9] dark:hover:text-[#0f172a]"
               >
                 <Eraser className="mr-1.5 h-3.5 w-3.5" />
                 Clear

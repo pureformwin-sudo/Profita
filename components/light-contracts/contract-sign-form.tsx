@@ -116,9 +116,13 @@ export function ContractSignForm({ token, contract: initial }: ContractSignFormP
               {contract.companySignatureName ?? contract.companyName ?? ''}
             </p>
             <div className="mt-6 flex h-8 items-end border-b border-[#94a3b8] pb-1">
-              <span className="text-xs text-[#1a1a1a]">
-                {contract.companySignedAt ? formatStamp(contract.companySignedAt) : '—'}
-              </span>
+              {/* Blank rather than a dash: an empty ruled line reads as
+                  "not yet dated", whereas a dash looks like real content. */}
+              {contract.companySignedAt && (
+                <span className="text-xs text-[#1a1a1a]">
+                  {formatStamp(contract.companySignedAt)}
+                </span>
+              )}
             </div>
             <p className="mt-2 text-xs text-[#64748b]">Date</p>
           </div>
