@@ -26,6 +26,7 @@ import {
   Zap,
   MessageSquare,
   Target,
+  ScrollText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -74,6 +75,7 @@ const navItems: NavItem[] = [
   { href: '/calendar', label: 'Schedule', icon: CalendarDays },
   { href: '/team', label: 'Team', icon: Users2, requiredPermission: 'manage_team' },
   { href: '/plans', label: 'Plans', icon: Repeat, requiredPermission: 'manage_service_plans' },
+  { href: '/contracts', label: 'Contracts', icon: ScrollText, requiredPermission: 'view_invoices' },
   { href: '/lead-scoring', label: 'Lead Scoring', icon: Target, requiredPermission: 'view_reports' },
   { href: '/ai-growth', label: 'AI Growth', icon: Sparkles, premium: true, requiredPermission: 'use_ai_growth' },
 ]
