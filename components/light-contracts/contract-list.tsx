@@ -43,6 +43,10 @@ interface ContractListProps {
   onReopen: (contract: LightContract) => void
   onDelete: (contract: LightContract) => void
   onAddWording: () => void
+  /** Mint (or re-copy) the public signing link for a finalized contract. */
+  onShare: (contract: LightContract) => void
+  /** Copy the read-only link to an already-signed contract. */
+  onCopyLink: (contract: LightContract) => void
 }
 
 export function ContractList({
@@ -56,6 +60,8 @@ export function ContractList({
   onReopen,
   onDelete,
   onAddWording,
+  onShare,
+  onCopyLink,
 }: ContractListProps) {
   const [pendingDelete, setPendingDelete] = useState<LightContract | null>(null)
 
@@ -94,6 +100,7 @@ export function ContractList({
       <div className="flex flex-col gap-3">
         {contracts.map((contract) => {
           const isFinal = contract.status === 'final'
+          const isSigned = contract.status === 'signed'
           return (
             <Card key={contract.id} className="p-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -106,8 +113,13 @@ export function ContractList({
                     >
                       {contract.customerName}
                     </button>
-                    <Badge variant={isFinal ? 'default' : 'secondary'}>
-                      {isFinal ? 'Final' : 'Draft'}
+                    <Badge
+                      variant={isSigned ? 'default' : isFinal ? 'outline' : 'secondary'}
+                      className={
+                        isSigned ? 'bg-success text-success-foreground border-transparent' : undefined
+                      }
+                    >
+                      {isSigned ? 'Signed' : isFinal ? 'Final' : 'Draft'}
                     </Badge>
                     <span className="font-mono text-xs text-muted-foreground">
                       {contract.contractNumber}
@@ -138,6 +150,28 @@ export function ContractList({
                       <span>Takedown {formatContractDate(contract.takedownDate)}</span>
                     )}
                   </div>
+
+                  {isSigned && contract.signedAt && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Signed by{' '}
+                      <span className="font-medium text-foreground">
+                        {contract.signatureName}
+                      </span>{' '}
+                      on{' '}
+                      {new Date(contract.signedAt).toLocaleString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  )}
+                  {isFinal && contract.shareToken && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Signing link sent — awaiting customer signature
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
@@ -152,11 +186,22 @@ export function ContractList({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      {isFinal ? (
-                        <DropdownMenuItem onClick={() => onReopen(contract)}>
-                          Reopen for editing
+                      {isSigned && (
+                        <DropdownMenuItem onClick={() => onCopyLink(contract)}>
+                          Copy signed copy link
                         </DropdownMenuItem>
-                      ) : (
+                      )}
+                      {isFinal && (
+                        <>
+                          <DropdownMenuItem onClick={() => onShare(contract)}>
+                            {contract.shareToken ? 'Copy signing link' : 'Send for signature'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onReopen(contract)}>
+                            Reopen for editing
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                      {!isFinal && !isSigned && (
                         <>
                           <DropdownMenuItem onClick={() => onEdit(contract)}>
                             Edit terms
@@ -193,9 +238,11 @@ export function ContractList({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this contract?</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDelete?.status === 'final'
-                ? `${pendingDelete.contractNumber} is a finalized agreement for ${pendingDelete.customerName}. Deleting removes your only record of it. This cannot be undone.`
-                : `${pendingDelete?.contractNumber} for ${pendingDelete?.customerName} will be permanently removed. This cannot be undone.`}
+              {pendingDelete?.status === 'signed'
+                ? `${pendingDelete.contractNumber} was signed by ${pendingDelete.signatureName ?? pendingDelete.customerName}. Deleting destroys the signature and the only record of this executed agreement. This cannot be undone.`
+                : pendingDelete?.status === 'final'
+                  ? `${pendingDelete.contractNumber} is a finalized agreement for ${pendingDelete.customerName}. Deleting removes your only record of it. This cannot be undone.`
+                  : `${pendingDelete?.contractNumber} for ${pendingDelete?.customerName} will be permanently removed. This cannot be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

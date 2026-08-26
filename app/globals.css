@@ -81,6 +81,9 @@
 @theme inline {
   --font-sans: 'Inter', 'Inter Fallback', system-ui, sans-serif;
   --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
+  /* Typed contract signatures only, via the `font-signature` utility.
+     The `--signature-family` var is injected by next/font in layout.tsx. */
+  --font-signature: var(--signature-family), 'Segoe Script', cursive;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

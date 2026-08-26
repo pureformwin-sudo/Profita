@@ -9,9 +9,19 @@
  * customer record later changes.
  */
 
+import { randomBytes } from 'node:crypto'
 import { createClient } from '@/lib/supabase/server'
 import type { ContractTemplate, LightContract, LightContractStatus } from '@/lib/types'
 import { buildContractNumber } from '@/lib/light-contracts'
+
+/**
+ * 32 bytes of CSPRNG entropy, url-safe. This token is the ONLY thing standing
+ * between the public internet and a customer's contract, so it must not be
+ * derived from the contract id, timestamp, or anything else guessable.
+ */
+function generateShareToken(): string {
+  return randomBytes(32).toString('base64url')
+}
 
 /** Postgres "relation does not exist" — migration hasn't been run. */
 const MISSING_TABLE = '42P01'
@@ -43,6 +53,14 @@ type ContractRow = {
   body_snapshot: string | null
   status: string
   finalized_at: string | null
+  share_token: string | null
+  shared_at: string | null
+  signature_kind: string | null
+  signature_name: string | null
+  signature_image: string | null
+  signed_at: string | null
+  company_signature_name: string | null
+  company_signed_at: string | null
   created_at: string
   updated_at: string
 }
@@ -65,6 +83,10 @@ function toTemplate(row: TemplateRow): ContractTemplate {
   }
 }
 
+function toStatus(value: string): LightContractStatus {
+  return value === 'final' || value === 'signed' ? value : 'draft'
+}
+
 function toContract(row: ContractRow): LightContract {
   return {
     id: row.id,
@@ -80,8 +102,18 @@ function toContract(row: ContractRow): LightContract {
     takedownDate: row.takedown_date,
     notes: row.notes,
     bodySnapshot: row.body_snapshot,
-    status: (row.status === 'final' ? 'final' : 'draft') as LightContractStatus,
+    status: toStatus(row.status),
     finalizedAt: row.finalized_at,
+    shareToken: row.share_token,
+    sharedAt: row.shared_at,
+    signatureKind: row.signature_kind === 'typed' || row.signature_kind === 'drawn'
+      ? row.signature_kind
+      : null,
+    signatureName: row.signature_name,
+    signatureImage: row.signature_image,
+    signedAt: row.signed_at,
+    companySignatureName: row.company_signature_name,
+    companySignedAt: row.company_signed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -243,6 +275,9 @@ export async function updateContract(
 
   if (readErr) throw new Error(readErr.message)
   if (!existing) throw new Error('Contract not found.')
+  if (existing.status === 'signed') {
+    throw new Error('This contract has been signed and can no longer be edited.')
+  }
   if (existing.status === 'final') {
     throw new Error('This contract is finalized and can no longer be edited.')
   }
@@ -300,16 +335,107 @@ export async function finalizeContract(
   return toContract(data as ContractRow)
 }
 
-/** Reopen a finalized contract for editing, clearing the frozen wording. */
+/**
+ * Reopen a finalized contract for editing, clearing the frozen wording.
+ *
+ * A signed contract is never reopenable — doing so would destroy the
+ * signature evidence attached to wording the customer actually agreed to.
+ * The `.neq('status', 'signed')` filter enforces this at the query level even
+ * if the pre-check races.
+ */
 export async function reopenContract(
   companyId: string,
   contractId: string,
 ): Promise<LightContract> {
   const supabase = await createClient()
 
+  const { data: existing, error: readErr } = await supabase
+    .from('light_contracts')
+    .select('status')
+    .eq('company_id', companyId)
+    .eq('id', contractId)
+    .maybeSingle()
+
+  if (readErr) throw new Error(readErr.message)
+  if (!existing) throw new Error('Contract not found.')
+  if (existing.status === 'signed') {
+    throw new Error(
+      'This contract has been signed and cannot be reopened. Create a new contract instead.',
+    )
+  }
+
   const { data, error } = await supabase
     .from('light_contracts')
-    .update({ status: 'draft', body_snapshot: null, finalized_at: null })
+    .update({
+      status: 'draft',
+      body_snapshot: null,
+      finalized_at: null,
+      // Invalidate any link already sent out.
+      share_token: null,
+      shared_at: null,
+    })
+    .eq('company_id', companyId)
+    .eq('id', contractId)
+    .neq('status', 'signed')
+    .select('*')
+    .single()
+
+  if (error) throw new Error(error.message)
+  return toContract(data as ContractRow)
+}
+
+/**
+ * Mint (or return) the public signing link for a finalized contract.
+ *
+ * Only finalized contracts can be shared: sharing a draft would let the
+ * customer sign wording that is still being edited. The token is minted once
+ * and reused so re-sending the same contract doesn't invalidate a link the
+ * customer may already have open.
+ */
+export async function shareContract(
+  companyId: string,
+  contractId: string,
+  companyName: string,
+): Promise<LightContract> {
+  const supabase = await createClient()
+
+  const { data: existing, error: readErr } = await supabase
+    .from('light_contracts')
+    .select('status, share_token, body_snapshot')
+    .eq('company_id', companyId)
+    .eq('id', contractId)
+    .maybeSingle()
+
+  if (readErr) throw new Error(readErr.message)
+  if (!existing) throw new Error('Contract not found.')
+  if (existing.status === 'draft') {
+    throw new Error('Finalize the contract before sending it for signature.')
+  }
+  if (!existing.body_snapshot) {
+    throw new Error('This contract has no frozen wording to sign.')
+  }
+
+  // Already shared — hand back the existing link untouched.
+  if (existing.share_token) {
+    const { data, error } = await supabase
+      .from('light_contracts')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('id', contractId)
+      .single()
+    if (error) throw new Error(error.message)
+    return toContract(data as ContractRow)
+  }
+
+  const { data, error } = await supabase
+    .from('light_contracts')
+    .update({
+      share_token: generateShareToken(),
+      shared_at: new Date().toISOString(),
+      // Counter-signature is auto-stamped: the company party is always us.
+      company_signature_name: companyName || null,
+      company_signed_at: companyName ? new Date().toISOString() : null,
+    })
     .eq('company_id', companyId)
     .eq('id', contractId)
     .select('*')

@@ -421,7 +421,15 @@ export type InAppNotificationType =
 // Christmas lights lease contracts
 // ---------------------------------------------------------------------------
 
-export type LightContractStatus = 'draft' | 'final'
+/**
+ * draft  → editable
+ * final  → wording frozen, ready to send
+ * signed → customer has signed; terminal and immutable
+ */
+export type LightContractStatus = 'draft' | 'final' | 'signed'
+
+/** How the customer produced their signature. */
+export type SignatureKind = 'typed' | 'drawn'
 
 /** Reusable boilerplate wording. One row per company per contract type. */
 export interface ContractTemplate {
@@ -456,6 +464,22 @@ export interface LightContract {
   bodySnapshot: string | null
   status: LightContractStatus
   finalizedAt: string | null
+
+  /** Unguessable public token, minted when the contract is shared to sign. */
+  shareToken: string | null
+  sharedAt: string | null
+
+  signatureKind: SignatureKind | null
+  /** Typed legal name. Captured for both typed and drawn signatures. */
+  signatureName: string | null
+  /** PNG data URL for a drawn signature. Null when typed. */
+  signatureImage: string | null
+  signedAt: string | null
+
+  /** Auto-stamped counter-signature from the business profile. */
+  companySignatureName: string | null
+  companySignedAt: string | null
+
   createdAt: string
   updatedAt: string
 }

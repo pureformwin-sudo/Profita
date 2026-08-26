@@ -140,18 +140,56 @@ export function ContractDocument({ contract, templateBody, company }: ContractDo
       )}
 
       <section className="mt-12 grid gap-10 border-t border-[#e2e8f0] pt-8 sm:grid-cols-2">
-        {[
-          { role: 'Customer', name: contract.customerName },
-          { role: 'Company representative', name: company.name },
-        ].map((party) => (
-          <div key={party.role}>
-            <div className="h-10 border-b border-[#94a3b8]" aria-hidden="true" />
-            <p className="mt-2 text-xs font-medium">{party.role}</p>
-            {party.name && <p className="text-xs text-[#64748b]">{party.name}</p>}
-            <div className="mt-6 h-8 w-40 border-b border-[#94a3b8]" aria-hidden="true" />
-            <p className="mt-2 text-xs text-[#64748b]">Date</p>
+        {/* Customer: shows the captured signature once signed, blank line before. */}
+        <div>
+          <div className="flex h-10 items-end border-b border-[#94a3b8] pb-0.5">
+            {contract.status === 'signed' &&
+              (contract.signatureKind === 'drawn' && contract.signatureImage ? (
+                <img
+                  src={contract.signatureImage || '/placeholder.svg'}
+                  alt={`Signature of ${contract.signatureName ?? contract.customerName}`}
+                  className="max-h-9 w-auto"
+                />
+              ) : (
+                <span className="font-signature text-2xl leading-none">
+                  {contract.signatureName}
+                </span>
+              ))}
           </div>
-        ))}
+          <p className="mt-2 text-xs font-medium">Customer</p>
+          <p className="text-xs text-[#64748b]">
+            {contract.signatureName ?? contract.customerName}
+          </p>
+          <div className="mt-6 flex h-8 w-52 items-end border-b border-[#94a3b8] pb-0.5">
+            {contract.signedAt && (
+              <span className="text-[11px]">{formatSignedStamp(contract.signedAt)}</span>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-[#64748b]">Date</p>
+        </div>
+
+        {/* Company: auto-stamped at send time. */}
+        <div>
+          <div className="flex h-10 items-end border-b border-[#94a3b8] pb-0.5">
+            {contract.companySignatureName && (
+              <span className="font-signature text-2xl leading-none">
+                {contract.companySignatureName}
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-xs font-medium">Company representative</p>
+          {(contract.companySignatureName || company.name) && (
+            <p className="text-xs text-[#64748b]">
+              {contract.companySignatureName ?? company.name}
+            </p>
+          )}
+          <div className="mt-6 flex h-8 w-52 items-end border-b border-[#94a3b8] pb-0.5">
+            {contract.companySignedAt && (
+              <span className="text-[11px]">{formatSignedStamp(contract.companySignedAt)}</span>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-[#64748b]">Date</p>
+        </div>
       </section>
     </div>
   )

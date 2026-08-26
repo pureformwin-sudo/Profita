@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { toast } from 'sonner'
-import { AlertTriangle, FileText, Plus, Printer, ScrollText } from 'lucide-react'
+import { AlertTriangle, FileText, Plus, Printer, ScrollText, Send } from 'lucide-react'
 import type { Customer, ContractTemplate, LightContract } from '@/lib/types'
 import { getCustomers, getSettings } from '@/lib/storage'
 import {
@@ -187,6 +187,51 @@ export default function ContractsPage() {
     }
   }
 
+  /**
+   * Copy a signing URL to the clipboard.
+   *
+   * `navigator.clipboard` needs a secure context and can be blocked, so fall
+   * back to showing the raw URL rather than failing silently.
+   */
+  async function copySigningLink(token: string, message: string) {
+    const url = `${window.location.origin}/sign/${token}`
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success(message, { description: url })
+    } catch {
+      toast.info('Copy this signing link', { description: url, duration: 12000 })
+    }
+  }
+
+  /** Mint the link on first send, then just re-copy it afterwards. */
+  async function handleShare(contract: LightContract) {
+    if (contract.shareToken) {
+      await copySigningLink(contract.shareToken, 'Signing link copied')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const res = await fetch('/api/light-contracts/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: contract.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to create signing link')
+
+      const saved = data.contract as LightContract
+      setContracts((prev) => prev.map((c) => (c.id === saved.id ? saved : c)))
+      if (saved.shareToken) {
+        await copySigningLink(saved.shareToken, 'Signing link ready — send it to your customer')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create signing link')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function handleDelete(contract: LightContract) {
     setSaving(true)
     try {
@@ -287,6 +332,10 @@ export default function ContractsPage() {
                 onReopen={(c) => handleFinalize(c, 'reopen')}
                 onDelete={handleDelete}
                 onAddWording={() => setTab('wording')}
+                onShare={handleShare}
+                onCopyLink={(c) => {
+                  if (c.shareToken) void copySigningLink(c.shareToken, 'Link copied')
+                }}
               />
             </TabsContent>
 
@@ -322,15 +371,26 @@ export default function ContractsPage() {
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
                     <div className="flex items-center gap-2">
-                      <Badge variant={previewContract.status === 'final' ? 'default' : 'secondary'}>
-                        {previewContract.status === 'final' ? 'Final' : 'Draft'}
+                      <Badge
+                        variant={previewContract.status === 'draft' ? 'secondary' : 'default'}
+                        className={
+                          previewContract.status === 'signed'
+                            ? 'bg-success text-success-foreground border-transparent'
+                            : undefined
+                        }
+                      >
+                        {previewContract.status === 'signed'
+                          ? 'Signed'
+                          : previewContract.status === 'final'
+                            ? 'Final'
+                            : 'Draft'}
                       </Badge>
                       <span className="font-mono text-sm text-muted-foreground">
                         {previewContract.contractNumber}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {previewContract.status === 'draft' ? (
+                      {previewContract.status === 'draft' && (
                         <Button
                           variant="outline"
                           onClick={() => handleFinalize(previewContract, 'finalize')}
@@ -338,15 +398,27 @@ export default function ContractsPage() {
                         >
                           Finalize
                         </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          onClick={() => handleFinalize(previewContract, 'reopen')}
-                          disabled={saving}
-                        >
-                          Reopen
-                        </Button>
                       )}
+                      {previewContract.status === 'final' && (
+                        <>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleFinalize(previewContract, 'reopen')}
+                            disabled={saving}
+                          >
+                            Reopen
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleShare(previewContract)}
+                            disabled={saving}
+                          >
+                            <Send className="mr-1.5 h-4 w-4" />
+                            {previewContract.shareToken ? 'Copy signing link' : 'Send for signature'}
+                          </Button>
+                        </>
+                      )}
+                      {/* A signed contract is immutable — no reopen, no re-send. */}
                       <Button onClick={() => window.print()}>
                         <Printer className="mr-1.5 h-4 w-4" />
                         Download / Print
