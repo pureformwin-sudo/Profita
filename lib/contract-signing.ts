@@ -62,6 +62,33 @@ function num(v: string | number | null): number | null {
 }
 
 /**
+ * Shape of the columns selected below.
+ *
+ * The service-role client is untyped (no generated Database types), so
+ * `.select()` on a built-up column string widens to an error union. Declaring
+ * the row explicitly keeps the mapping below type-checked.
+ */
+interface TokenRow {
+  contract_number: string
+  customer_name: string
+  service_address: string | null
+  price: string | number | null
+  term_years: number | null
+  install_date: string | null
+  takedown_date: string | null
+  notes: string | null
+  body_snapshot: string | null
+  status: string
+  company_signature_name: string | null
+  company_signed_at: string | null
+  signature_kind: string | null
+  signature_name: string | null
+  signature_image: string | null
+  signed_at: string | null
+  company_id: string
+}
+
+/**
  * Resolve a share token to its contract.
  *
  * Returns null for any token that doesn't match, isn't shared, or belongs to a
@@ -74,7 +101,7 @@ export async function loadContractByToken(token: string): Promise<PublicContract
 
   const supabase = serviceClient()
 
-  const { data, error } = await supabase
+  const { data: raw, error } = await supabase
     .from('light_contracts')
     .select(
       'contract_number, customer_name, service_address, price, term_years, install_date, ' +
@@ -84,7 +111,8 @@ export async function loadContractByToken(token: string): Promise<PublicContract
     .eq('share_token', token)
     .maybeSingle()
 
-  if (error || !data) return null
+  if (error || !raw) return null
+  const data = raw as unknown as TokenRow
   // A draft has no frozen wording; there is nothing safe to present.
   if (data.status !== 'final' && data.status !== 'signed') return null
   if (!data.body_snapshot) return null

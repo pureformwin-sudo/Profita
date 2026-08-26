@@ -124,6 +124,28 @@ export function formatContractDate(value: string | null): string {
   })
 }
 
+/**
+ * Format a signature timestamp for the document's date line.
+ *
+ * Unlike `formatContractDate`, this takes a full ISO instant (not a date-only
+ * string), so normal Date parsing is correct here — there is no UTC-midnight
+ * ambiguity to avoid. Includes the time because a signature is a point-in-time
+ * legal act, and the timezone abbreviation so the stamp is unambiguous.
+ */
+export function formatSignedStamp(value: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
+
 const ONES = [
   'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
   'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen',

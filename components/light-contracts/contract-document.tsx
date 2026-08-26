@@ -13,6 +13,7 @@ import {
   buildContractValues,
   formatContractDate,
   formatPrice,
+  formatSignedStamp,
   renderContractBody,
   toParagraphs,
   type CompanyInfo,
