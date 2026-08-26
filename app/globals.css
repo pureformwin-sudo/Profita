@@ -81,6 +81,9 @@
 @theme inline {
   --font-sans: 'Inter', 'Inter Fallback', system-ui, sans-serif;
   --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
+  /* Typed contract signatures only, via the `font-signature` utility.
+     The `--signature-family` var is injected by next/font in layout.tsx. */
+  --font-signature: var(--signature-family), 'Segoe Script', cursive;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -238,7 +241,7 @@
   }
   
   /* Hide non-essential elements */
-  .print\\:hidden,
+  .print\:hidden,
   nav,
   aside,
   header:not(.print-keep),
@@ -263,7 +266,7 @@
   }
   
   /* Remove shadows for cleaner print */
-  .print\\:shadow-none,
+  .print\:shadow-none,
   .shadow-xl,
   .shadow-lg,
   .shadow-md,
@@ -272,12 +275,12 @@
     box-shadow: none !important;
   }
   
-  .print\\:border-0 {
+  .print\:border-0 {
     border: none !important;
   }
   
   /* White background for cards */
-  .print\\:bg-white {
+  .print\:bg-white {
     background: white !important;
   }
   
@@ -312,7 +315,7 @@
   }
   
   /* Ensure totals stay together */
-  .print\\:break-inside-avoid {
+  .print\:break-inside-avoid {
     break-inside: avoid;
   }
   

@@ -12,7 +12,10 @@ interface ApprovalGateProps {
 
 // Pages that don't require approval (or have their own auth handling)
 // Note: '/' must be exact match, others use startsWith
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/pending', '/worker', '/book', '/pay', '/api', '/rep', '/sales', '/crew', '/onboarding', '/invite', '/portal', '/auth', '/reports']
+// Keep in sync with publicPaths in components/auth-provider.tsx and the
+// server-side allowlist in lib/supabase/middleware.ts. '/sign' is the public
+// contract-signing route, gated by an unguessable share token instead of auth.
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/pending', '/worker', '/book', '/pay', '/api', '/rep', '/sales', '/crew', '/onboarding', '/invite', '/portal', '/auth', '/reports', '/sign']
 
 type GateStatus = 'loading' | 'approved' | 'pending' | 'rejected' | 'no-auth'
 

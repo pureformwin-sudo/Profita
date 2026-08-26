@@ -417,6 +417,73 @@ export type InAppNotificationType =
   | 'system_welcome'
   | 'system_update'
 
+// ---------------------------------------------------------------------------
+// Christmas lights lease contracts
+// ---------------------------------------------------------------------------
+
+/**
+ * draft  → editable
+ * final  → wording frozen, ready to send
+ * signed → customer has signed; terminal and immutable
+ */
+export type LightContractStatus = 'draft' | 'final' | 'signed'
+
+/** How the customer produced their signature. */
+export type SignatureKind = 'typed' | 'drawn'
+
+/** Reusable boilerplate wording. One row per company per contract type. */
+export interface ContractTemplate {
+  id: string
+  contractType: string
+  name: string
+  /** Raw wording with {{placeholders}}. Supplied by the user. */
+  body: string
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * One lease agreement. Customer name/address are SNAPSHOT onto the row rather
+ * than joined, so an executed contract keeps the terms it was signed under
+ * even if the customer record is later edited or deleted.
+ */
+export interface LightContract {
+  id: string
+  customerId: string | null
+  contractNumber: string
+  customerName: string
+  serviceAddress: string | null
+  customerEmail: string | null
+  customerPhone: string | null
+  price: number | null
+  termYears: number | null
+  installDate: string | null
+  takedownDate: string | null
+  notes: string | null
+  /** Wording frozen at finalize time. Null while still a draft. */
+  bodySnapshot: string | null
+  status: LightContractStatus
+  finalizedAt: string | null
+
+  /** Unguessable public token, minted when the contract is shared to sign. */
+  shareToken: string | null
+  sharedAt: string | null
+
+  signatureKind: SignatureKind | null
+  /** Typed legal name. Captured for both typed and drawn signatures. */
+  signatureName: string | null
+  /** PNG data URL for a drawn signature. Null when typed. */
+  signatureImage: string | null
+  signedAt: string | null
+
+  /** Auto-stamped counter-signature from the business profile. */
+  companySignatureName: string | null
+  companySignedAt: string | null
+
+  createdAt: string
+  updatedAt: string
+}
+
 export interface InAppNotification {
   id: string
   type: InAppNotificationType

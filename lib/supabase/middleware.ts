@@ -11,6 +11,11 @@ export async function updateSession(request: NextRequest) {
     || pathname.startsWith('/pay')
     || pathname.startsWith('/reports')
     || pathname.startsWith('/api/job-photos/public-file')
+    // Contract signing: the customer opens this from an emailed link and has no
+    // account. The unguessable share token in the URL is the credential, and
+    // lib/contract-signing.ts scopes every read/write to that token alone.
+    || pathname.startsWith('/sign')
+    || pathname.startsWith('/api/sign/')
     // Inbound webhooks are machine-to-machine: third parties (Stripe, Quo) send no
     // session cookie, so without this they get 307'd to /login and every delivery
     // fails. Each route authenticates itself by verifying the provider's signature.
