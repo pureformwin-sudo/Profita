@@ -30,7 +30,12 @@ import { ContractList } from '@/components/light-contracts/contract-list'
 import { ContractForm } from '@/components/light-contracts/contract-form'
 import { ContractDocument } from '@/components/light-contracts/contract-document'
 
-const SETUP_SQL = 'scripts/021-christmas-light-contracts.sql'
+// Both files are required, in order: 021 creates the tables, 022 adds the
+// customer signing columns. Running only 021 leaves /sign broken.
+const SETUP_SQL = [
+  'scripts/migrations/021-christmas-light-contracts.sql',
+  'scripts/migrations/022-contract-signing.sql',
+]
 
 export default function ContractsPage() {
   const [loading, setLoading] = useState(true)
@@ -274,9 +279,15 @@ export default function ContractsPage() {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Database setup required</AlertTitle>
             <AlertDescription>
-              The contract tables don&apos;t exist yet. Run{' '}
-              <code className="font-mono text-xs">{SETUP_SQL}</code> against your Supabase project,
-              then reload this page.
+              The contract tables don&apos;t exist yet. Run these against your Supabase project in
+              order, then reload this page:
+              <span className="mt-2 flex flex-col gap-1">
+                {SETUP_SQL.map((file) => (
+                  <code key={file} className="font-mono text-xs">
+                    {file}
+                  </code>
+                ))}
+              </span>
             </AlertDescription>
           </Alert>
         )}
