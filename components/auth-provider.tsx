@@ -13,7 +13,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const publicPaths = ['/login', '/signup', '/forgot-password', '/auth/callback', '/invite', '/pay', '/portal', '/worker', '/pending-approval', '/reports']
+// NOTE: this list must stay in sync with the server-side allowlist in
+// lib/supabase/middleware.ts. Middleware alone is not enough — this provider
+// redirects unauthenticated visitors client-side, so a route missing here
+// renders correctly on the server and then bounces to /login in the browser.
+const publicPaths = ['/login', '/signup', '/forgot-password', '/auth/callback', '/invite', '/pay', '/portal', '/worker', '/pending-approval', '/reports', '/sign']
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)

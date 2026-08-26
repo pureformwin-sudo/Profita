@@ -150,10 +150,12 @@ export function ContractSignForm({ token, contract: initial }: ContractSignFormP
     <section className="mt-12 border-t border-[#e2e8f0] pt-8">
       {/* Company side is pre-filled; only the customer needs to act. */}
       <div className="grid gap-10 sm:grid-cols-2">
-        <div className="rounded-xl border border-border bg-background p-4">
+        {/* Colors are hard-coded, not tokens: this sits inside a fixed-white
+            document sheet, so theme tokens would render dark-on-white in dark mode. */}
+        <div className="rounded-xl border border-[#cbd5e1] bg-[#f8fafc] p-4">
           <div className="flex items-center gap-2">
-            <PenLine className="h-4 w-4 text-primary" />
-            <p className="text-sm font-medium text-foreground">Your signature</p>
+            <PenLine className="h-4 w-4 text-[#0f766e]" />
+            <p className="text-sm font-medium text-[#1a1a1a]">Your signature</p>
           </div>
           <div className="mt-4">
             <SignaturePad
@@ -175,9 +177,13 @@ export function ContractSignForm({ token, contract: initial }: ContractSignFormP
             {contract.companySignatureName ?? contract.companyName ?? ''}
           </p>
           <div className="mt-6 flex h-8 items-end border-b border-[#94a3b8] pb-1">
-            <span className="text-xs text-[#1a1a1a]">
-              {contract.companySignedAt ? formatStamp(contract.companySignedAt) : '—'}
-            </span>
+            {/* Blank rather than a dash: an empty signature line reads as
+                "not yet dated", whereas a dash looks like intentional content. */}
+            {contract.companySignedAt && (
+              <span className="text-xs text-[#1a1a1a]">
+                {formatStamp(contract.companySignedAt)}
+              </span>
+            )}
           </div>
           <p className="mt-2 text-xs text-[#64748b]">Date</p>
         </div>
@@ -194,7 +200,7 @@ export function ContractSignForm({ token, contract: initial }: ContractSignFormP
             'Sign this agreement'
           )}
         </Button>
-        <p className="text-xs leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-relaxed text-[#64748b]">
           By clicking Sign, you agree to the terms above and consent to signing electronically. The
           current date and time will be recorded with your signature.
         </p>

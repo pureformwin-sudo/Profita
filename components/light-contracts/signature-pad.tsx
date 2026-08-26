@@ -171,7 +171,7 @@ export function SignaturePad({ defaultName = '', disabled, onChange }: Signature
             emit({ name: e.target.value })
           }}
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-[#64748b]">
           Recorded with your signature on both options below.
         </p>
       </div>
@@ -194,13 +194,15 @@ export function SignaturePad({ defaultName = '', disabled, onChange }: Signature
         </TabsList>
 
         <TabsContent value="typed" className="mt-3">
-          <div className="flex min-h-28 items-center justify-center rounded-lg border border-border bg-card px-4 py-6">
+          {/* Fixed light colors: this pad renders inside a white contract sheet,
+              so the preview must match the ink that ends up on the document. */}
+          <div className="flex min-h-28 items-center justify-center rounded-lg border border-[#cbd5e1] bg-white px-4 py-6">
             {name.trim() ? (
-              <span className="font-signature text-4xl leading-tight text-foreground">
+              <span className="font-signature text-4xl leading-tight text-[#1a1a1a]">
                 {name.trim()}
               </span>
             ) : (
-              <span className="text-sm text-muted-foreground">
+              <span className="text-sm text-[#94a3b8]">
                 Your typed signature appears here
               </span>
             )}
@@ -208,7 +210,7 @@ export function SignaturePad({ defaultName = '', disabled, onChange }: Signature
         </TabsContent>
 
         <TabsContent value="drawn" className="mt-3">
-          <div className="rounded-lg border border-border bg-card p-2">
+          <div className="rounded-lg border border-[#cbd5e1] bg-white p-2">
             <canvas
               ref={canvasRef}
               // touch-none stops the browser scrolling the page mid-stroke.
@@ -221,7 +223,7 @@ export function SignaturePad({ defaultName = '', disabled, onChange }: Signature
               role="img"
             />
             <div className="mt-2 flex items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-[#64748b]">
                 {hasDrawing ? 'Signature captured.' : 'Sign with your mouse or finger.'}
               </p>
               <Button

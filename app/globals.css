@@ -241,7 +241,7 @@
   }
   
   /* Hide non-essential elements */
-  .print\\:hidden,
+  .print\:hidden,
   nav,
   aside,
   header:not(.print-keep),
@@ -266,7 +266,7 @@
   }
   
   /* Remove shadows for cleaner print */
-  .print\\:shadow-none,
+  .print\:shadow-none,
   .shadow-xl,
   .shadow-lg,
   .shadow-md,
@@ -275,12 +275,12 @@
     box-shadow: none !important;
   }
   
-  .print\\:border-0 {
+  .print\:border-0 {
     border: none !important;
   }
   
   /* White background for cards */
-  .print\\:bg-white {
+  .print\:bg-white {
     background: white !important;
   }
   
@@ -315,7 +315,7 @@
   }
   
   /* Ensure totals stay together */
-  .print\\:break-inside-avoid {
+  .print\:break-inside-avoid {
     break-inside: avoid;
   }
   
