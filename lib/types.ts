@@ -418,7 +418,11 @@ export type InAppNotificationType =
   | 'system_update'
 
 // ---------------------------------------------------------------------------
-// Christmas lights lease contracts
+// Service contracts
+//
+// The table is still named `light_contracts` for historical reasons, but the
+// shape of a contract is no longer lights-specific: each contract type declares
+// its own fields on its template (see ContractFieldDef).
 // ---------------------------------------------------------------------------
 
 /**
@@ -431,13 +435,38 @@ export type LightContractStatus = 'draft' | 'final' | 'signed'
 /** How the customer produced their signature. */
 export type SignatureKind = 'typed' | 'drawn'
 
+/** Input type for a template-declared custom field. */
+export type ContractFieldType = 'text' | 'money' | 'date' | 'number'
+
+/**
+ * One custom field that a contract type collects.
+ *
+ * This is what makes contracts service-agnostic: a lights lease declares
+ * term/install/takedown, a roof wash declares service date + guarantee period,
+ * and neither shape is baked into the table definition.
+ */
+export interface ContractFieldDef {
+  /** Placeholder token, e.g. `service_date` for `{{service_date}}`. */
+  key: string
+  label: string
+  type: ContractFieldType
+  required: boolean
+}
+
 /** Reusable boilerplate wording. One row per company per contract type. */
 export interface ContractTemplate {
   id: string
   contractType: string
+  /** Short label used in the template picker. */
   name: string
   /** Raw wording with {{placeholders}}. Supplied by the user. */
   body: string
+  /** Printed heading, e.g. 'ROOF SOFT WASH AGREEMENT'. */
+  documentTitle: string
+  /** Contract number prefix: 'RSW' produces RSW-2026-001. */
+  numberPrefix: string
+  /** The custom fields this contract type collects. */
+  fields: ContractFieldDef[]
   createdAt: string
   updatedAt: string
 }
