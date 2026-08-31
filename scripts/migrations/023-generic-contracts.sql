@@ -83,13 +83,27 @@ alter table public.light_contracts
   --   { "price": "1850.00", "service_date": "2026-04-02" }
   -- Always strings — these are raw form values, formatted for display by the
   -- renderer according to the field's declared type.
-  add column if not exists field_values jsonb not null default '{}'::jsonb;
+  add column if not exists field_values jsonb not null default '{}'::jsonb,
+
+  -- Frozen copy of the template's field DEFINITIONS (labels + types).
+  --
+  -- field_values alone is not enough to render the terms summary: without the
+  -- labels and types, "1850.00" has no caption and no $ formatting. Freezing
+  -- the defs means editing or deleting a template can never relabel or
+  -- reformat the terms on an already-signed agreement.
+  add column if not exists field_defs jsonb not null default '[]'::jsonb;
 
 alter table public.light_contracts
   drop constraint if exists light_contracts_field_values_is_object;
 alter table public.light_contracts
   add constraint light_contracts_field_values_is_object
   check (jsonb_typeof(field_values) = 'object');
+
+alter table public.light_contracts
+  drop constraint if exists light_contracts_field_defs_is_array;
+alter table public.light_contracts
+  add constraint light_contracts_field_defs_is_array
+  check (jsonb_typeof(field_defs) = 'array');
 
 create index if not exists light_contracts_template_idx
   on public.light_contracts (template_id);
@@ -168,3 +182,19 @@ set
 where c.document_title is null
    or c.number_prefix is null
    or c.field_values = '{}'::jsonb;
+
+-- Freeze the field definitions onto existing contracts, preferring the linked
+-- template's list and falling back to the lights set for orphans. Without this
+-- an existing contract has values with no labels, so its Terms box would be
+-- blank even though field_values is populated.
+update public.light_contracts c
+set field_defs = coalesce(
+  (select t.fields from public.contract_templates t where t.id = c.template_id),
+  '[
+    {"key":"price","label":"Price","type":"money","required":false},
+    {"key":"term_years","label":"Term length (years)","type":"number","required":false},
+    {"key":"install_date","label":"Install date","type":"date","required":false},
+    {"key":"takedown_date","label":"Takedown date","type":"date","required":false}
+  ]'::jsonb
+)
+where c.field_defs = '[]'::jsonb;

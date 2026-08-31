@@ -1,17 +1,27 @@
 /**
- * Persistence for Christmas lights lease contracts.
+ * Persistence for service contracts.
  *
- * Two tables: `contract_templates` holds the reusable wording (one row per
- * company), `light_contracts` holds one row per customer agreement.
+ * Two tables: `contract_templates` holds reusable wording — one row per company
+ * per contract type, so a company can keep roof wash, window cleaning and
+ * lights templates side by side — and `light_contracts` holds one row per
+ * customer agreement.
  *
- * Customer name/address are copied onto each contract rather than joined, so
- * an executed agreement keeps the terms it was signed under even if the
- * customer record later changes.
+ * The `light_contracts` name is historical; contracts are not lights-specific.
+ *
+ * Customer name/address and the template's title, prefix and field definitions
+ * are all copied onto each contract rather than joined, so an executed
+ * agreement keeps the exact terms it was signed under even if the customer
+ * record or the template later changes.
  */
 
 import { randomBytes } from 'node:crypto'
 import { createClient } from '@/lib/supabase/server'
-import type { ContractTemplate, LightContract, LightContractStatus } from '@/lib/types'
+import type {
+  ContractFieldDef,
+  ContractTemplate,
+  LightContract,
+  LightContractStatus,
+} from '@/lib/types'
 import { buildContractNumber } from '@/lib/light-contracts'
 
 /**
@@ -26,13 +36,17 @@ function generateShareToken(): string {
 /** Postgres "relation does not exist" — migration hasn't been run. */
 const MISSING_TABLE = '42P01'
 
-const CONTRACT_TYPE = 'christmas_lights'
+/** Postgres unique violation — a contract type already exists. */
+const UNIQUE_VIOLATION = '23505'
 
 type TemplateRow = {
   id: string
   contract_type: string
   name: string
   body: string
+  document_title: string | null
+  number_prefix: string | null
+  fields: unknown
   created_at: string
   updated_at: string
 }
@@ -45,11 +59,16 @@ type ContractRow = {
   service_address: string | null
   customer_email: string | null
   customer_phone: string | null
+  notes: string | null
+  template_id: string | null
+  document_title: string | null
+  number_prefix: string | null
+  field_values: unknown
+  field_defs: unknown
   price: string | number | null
   term_years: number | null
   install_date: string | null
   takedown_date: string | null
-  notes: string | null
   body_snapshot: string | null
   status: string
   finalized_at: string | null
@@ -72,12 +91,56 @@ function num(v: string | number | null): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+const FIELD_TYPES = new Set(['text', 'money', 'date', 'number'])
+
+/**
+ * Coerce a jsonb column into a field list.
+ *
+ * jsonb is schemaless, so a hand-edited row could contain anything. Anything
+ * that isn't a well-formed field is dropped rather than trusted, because a
+ * malformed `type` would silently change how a value is formatted on a legal
+ * document.
+ */
+export function parseFieldDefs(raw: unknown): ContractFieldDef[] {
+  if (!Array.isArray(raw)) return []
+  const out: ContractFieldDef[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    const key = typeof r.key === 'string' ? r.key.trim() : ''
+    if (!key) continue
+    const type = typeof r.type === 'string' && FIELD_TYPES.has(r.type) ? r.type : 'text'
+    out.push({
+      key,
+      label: typeof r.label === 'string' && r.label.trim() ? r.label.trim() : key,
+      type: type as ContractFieldDef['type'],
+      required: r.required === true,
+    })
+  }
+  return out
+}
+
+/** Coerce a jsonb column into a flat string map. */
+function parseFieldValues(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (v == null) continue
+    if (typeof v === 'string') out[k] = v
+    else if (typeof v === 'number' || typeof v === 'boolean') out[k] = String(v)
+  }
+  return out
+}
+
 function toTemplate(row: TemplateRow): ContractTemplate {
   return {
     id: row.id,
     contractType: row.contract_type,
     name: row.name,
     body: row.body ?? '',
+    documentTitle: row.document_title?.trim() || row.name.toUpperCase(),
+    numberPrefix: row.number_prefix?.trim() || 'LEC',
+    fields: parseFieldDefs(row.fields),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -96,11 +159,19 @@ function toContract(row: ContractRow): LightContract {
     serviceAddress: row.service_address,
     customerEmail: row.customer_email,
     customerPhone: row.customer_phone,
+    notes: row.notes,
+    templateId: row.template_id,
+    // Fall back to the number's own prefix so a contract predating the
+    // migration still renders a sane heading rather than an empty one.
+    documentTitle: row.document_title?.trim() || 'SERVICE AGREEMENT',
+    numberPrefix:
+      row.number_prefix?.trim() || row.contract_number.split('-')[0] || 'LEC',
+    fieldValues: parseFieldValues(row.field_values),
+    fieldDefs: parseFieldDefs(row.field_defs),
     price: num(row.price),
     termYears: row.term_years,
     installDate: row.install_date,
     takedownDate: row.takedown_date,
-    notes: row.notes,
     bodySnapshot: row.body_snapshot,
     status: toStatus(row.status),
     finalizedAt: row.finalized_at,
@@ -120,7 +191,8 @@ function toContract(row: ContractRow): LightContract {
 }
 
 export interface LoadContractsResult {
-  template: ContractTemplate | null
+  /** Every saved contract type for this company. */
+  templates: ContractTemplate[]
   contracts: LightContract[]
   /** True when the tables are absent, so the UI can show setup SQL. */
   needsSetup: boolean
@@ -129,13 +201,12 @@ export interface LoadContractsResult {
 export async function loadContractData(companyId: string): Promise<LoadContractsResult> {
   const supabase = await createClient()
 
-  const [templateRes, contractsRes] = await Promise.all([
+  const [templatesRes, contractsRes] = await Promise.all([
     supabase
       .from('contract_templates')
       .select('*')
       .eq('company_id', companyId)
-      .eq('contract_type', CONTRACT_TYPE)
-      .maybeSingle(),
+      .order('name', { ascending: true }),
     supabase
       .from('light_contracts')
       .select('*')
@@ -143,24 +214,72 @@ export async function loadContractData(companyId: string): Promise<LoadContracts
       .order('created_at', { ascending: false }),
   ])
 
-  if (templateRes.error?.code === MISSING_TABLE || contractsRes.error?.code === MISSING_TABLE) {
-    return { template: null, contracts: [], needsSetup: true }
+  if (templatesRes.error?.code === MISSING_TABLE || contractsRes.error?.code === MISSING_TABLE) {
+    return { templates: [], contracts: [], needsSetup: true }
   }
-  if (templateRes.error) throw new Error(templateRes.error.message)
+  if (templatesRes.error) throw new Error(templatesRes.error.message)
   if (contractsRes.error) throw new Error(contractsRes.error.message)
 
   return {
-    template: templateRes.data ? toTemplate(templateRes.data as TemplateRow) : null,
+    templates: ((templatesRes.data ?? []) as TemplateRow[]).map(toTemplate),
     contracts: ((contractsRes.data ?? []) as ContractRow[]).map(toContract),
     needsSetup: false,
   }
 }
 
-/** Save the boilerplate wording. One row per company, so this upserts. */
+/**
+ * The field definitions an existing contract must be validated against.
+ *
+ * A draft is validated against its TEMPLATE's current fields, so adding a
+ * field to a type immediately applies to drafts. Anything already issued is
+ * validated against its own frozen defs — though those are immutable anyway.
+ */
+export async function loadContractFieldDefs(
+  companyId: string,
+  contractId: string,
+): Promise<ContractFieldDef[] | null> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('light_contracts')
+    .select('status, field_defs, contract_templates(fields)')
+    .eq('company_id', companyId)
+    .eq('id', contractId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!data) return null
+
+  const row = data as unknown as {
+    status: string
+    field_defs: unknown
+    contract_templates: { fields: unknown } | null
+  }
+
+  if (row.status === 'draft' && row.contract_templates) {
+    return parseFieldDefs(row.contract_templates.fields)
+  }
+  return parseFieldDefs(row.field_defs)
+}
+
+export interface TemplateInput {
+  /** Stable slug identifying the contract type within the company. */
+  contractType: string
+  name: string
+  documentTitle: string
+  numberPrefix: string
+  body: string
+  fields: ContractFieldDef[]
+}
+
+/**
+ * Create or update one contract type.
+ *
+ * Keyed on (company, contract_type), so saving an existing type edits it in
+ * place and a new slug adds a new template to the library.
+ */
 export async function saveTemplate(
   companyId: string,
-  body: string,
-  name?: string,
+  input: TemplateInput,
 ): Promise<ContractTemplate> {
   const supabase = await createClient()
 
@@ -169,17 +288,44 @@ export async function saveTemplate(
     .upsert(
       {
         company_id: companyId,
-        contract_type: CONTRACT_TYPE,
-        name: name?.trim() || 'Christmas Lights Lease',
-        body,
+        contract_type: input.contractType,
+        name: input.name.trim() || 'Service Agreement',
+        document_title:
+          input.documentTitle.trim() || (input.name.trim() || 'Service Agreement').toUpperCase(),
+        number_prefix: input.numberPrefix.trim().toUpperCase() || 'LEC',
+        body: input.body,
+        fields: input.fields,
       },
       { onConflict: 'company_id,contract_type' },
     )
     .select('*')
     .single()
 
-  if (error) throw new Error(error.message)
+  if (error) {
+    if (error.code === UNIQUE_VIOLATION) {
+      throw new Error('A contract type with that name already exists.')
+    }
+    throw new Error(error.message)
+  }
   return toTemplate(data as TemplateRow)
+}
+
+/**
+ * Delete a contract type.
+ *
+ * Existing contracts survive: `template_id` is ON DELETE SET NULL and every
+ * contract carries its own frozen title, prefix and field definitions, so
+ * removing a template can't alter or orphan an executed agreement.
+ */
+export async function deleteTemplate(companyId: string, templateId: string): Promise<void> {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('contract_templates')
+    .delete()
+    .eq('company_id', companyId)
+    .eq('id', templateId)
+
+  if (error) throw new Error(error.message)
 }
 
 export interface ContractInput {
@@ -188,23 +334,28 @@ export interface ContractInput {
   serviceAddress: string | null
   customerEmail: string | null
   customerPhone: string | null
-  price: number | null
-  termYears: number | null
-  installDate: string | null
-  takedownDate: string | null
   notes: string | null
+  /** Raw values for the template's declared fields. */
+  fieldValues: Record<string, string>
+  /** Mirrored to the legacy `price` column when the template has one. */
+  price: number | null
 }
 
 /**
- * Next contract number for the company, scoped to the current year.
+ * Next contract number for the company, scoped to prefix and year.
  *
  * Derived from the highest existing number rather than a row count, so
- * deleting a contract can't cause a collision with an existing one.
+ * deleting a contract can't cause a collision with an existing one. Scoping to
+ * the prefix means each contract type numbers independently: RSW-2026-001 and
+ * WC-2026-001 can both exist.
  */
-async function nextContractNumber(companyId: string): Promise<string> {
+async function nextContractNumber(companyId: string, rawPrefix: string): Promise<string> {
   const supabase = await createClient()
   const year = new Date().getFullYear()
-  const prefix = `CL-${year}-`
+  // Round-trip through the builder so the query prefix and the generated
+  // number can't disagree about sanitization.
+  const sample = buildContractNumber(rawPrefix, year, 1)
+  const prefix = sample.slice(0, sample.lastIndexOf('-') + 1)
 
   const { data, error } = await supabase
     .from('light_contracts')
@@ -219,15 +370,16 @@ async function nextContractNumber(companyId: string): Promise<string> {
   const highest = (data ?? [])[0]?.contract_number as string | undefined
   const lastSeq = highest ? Number(highest.slice(prefix.length)) : 0
   const next = Number.isFinite(lastSeq) ? lastSeq + 1 : 1
-  return buildContractNumber(year, next)
+  return buildContractNumber(rawPrefix, year, next)
 }
 
 export async function createContract(
   companyId: string,
+  template: ContractTemplate,
   input: ContractInput,
 ): Promise<LightContract> {
   const supabase = await createClient()
-  const contractNumber = await nextContractNumber(companyId)
+  const contractNumber = await nextContractNumber(companyId, template.numberPrefix)
 
   const { data, error } = await supabase
     .from('light_contracts')
@@ -239,11 +391,15 @@ export async function createContract(
       service_address: input.serviceAddress,
       customer_email: input.customerEmail,
       customer_phone: input.customerPhone,
-      price: input.price,
-      term_years: input.termYears,
-      install_date: input.installDate,
-      takedown_date: input.takedownDate,
       notes: input.notes,
+      // Snapshot the template's identity now. Editing or deleting the template
+      // later must not retitle, renumber or relabel this document.
+      template_id: template.id,
+      document_title: template.documentTitle,
+      number_prefix: template.numberPrefix,
+      field_values: input.fieldValues,
+      field_defs: template.fields,
+      price: input.price,
       status: 'draft',
     })
     .select('*')
@@ -290,11 +446,9 @@ export async function updateContract(
       service_address: input.serviceAddress,
       customer_email: input.customerEmail,
       customer_phone: input.customerPhone,
-      price: input.price,
-      term_years: input.termYears,
-      install_date: input.installDate,
-      takedown_date: input.takedownDate,
       notes: input.notes,
+      field_values: input.fieldValues,
+      price: input.price,
     })
     .eq('company_id', companyId)
     .eq('id', contractId)
@@ -310,11 +464,16 @@ export async function updateContract(
  *
  * The snapshot is what makes the record trustworthy later: editing the
  * template afterwards won't rewrite an agreement the customer already has.
+ *
+ * Finalize — not creation — is the real freeze point, so the title, prefix and
+ * field definitions are re-stamped from the template here too. A draft created
+ * before a template edit would otherwise be rendered with stale labels.
  */
 export async function finalizeContract(
   companyId: string,
   contractId: string,
   renderedBody: string,
+  template: ContractTemplate | null,
 ): Promise<LightContract> {
   const supabase = await createClient()
 
@@ -324,6 +483,12 @@ export async function finalizeContract(
       body_snapshot: renderedBody,
       status: 'final',
       finalized_at: new Date().toISOString(),
+      ...(template
+        ? {
+            document_title: template.documentTitle,
+            field_defs: template.fields,
+          }
+        : {}),
     })
     .eq('company_id', companyId)
     .eq('id', contractId)

@@ -484,12 +484,36 @@ export interface LightContract {
   serviceAddress: string | null
   customerEmail: string | null
   customerPhone: string | null
+  notes: string | null
+
+  /** Template this came from. Null if that template was later deleted. */
+  templateId: string | null
+  /** Heading, frozen at creation so editing a template can't retitle this. */
+  documentTitle: string
+  /** Number prefix actually printed on this document. */
+  numberPrefix: string
+  /** Raw values for the custom fields, keyed by field key. */
+  fieldValues: Record<string, string>
+  /**
+   * Field definitions frozen with the contract.
+   *
+   * Values alone can't be rendered — without labels and types, "1850.00" has
+   * no caption and no currency formatting. Freezing the defs means editing or
+   * deleting a template never relabels an executed agreement.
+   */
+  fieldDefs: ContractFieldDef[]
+
+  /**
+   * Legacy lights columns, retained so historical contracts and any existing
+   * reporting keep working. `price` is still mirrored from a template money
+   * field named `price`; the other three are no longer written.
+   */
   price: number | null
   termYears: number | null
   installDate: string | null
   takedownDate: string | null
-  notes: string | null
-  /** Wording frozen at finalize time. Null while still a draft. */
+
+  /** Wording frozen at finalize time, fully rendered. Null while a draft. */
   bodySnapshot: string | null
   status: LightContractStatus
   finalizedAt: string | null
