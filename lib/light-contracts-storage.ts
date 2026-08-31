@@ -22,7 +22,7 @@ import type {
   LightContract,
   LightContractStatus,
 } from '@/lib/types'
-import { buildContractNumber } from '@/lib/light-contracts'
+import { buildContractNumber, parseFieldDefs, parseFieldValues } from '@/lib/light-contracts'
 
 /**
  * 32 bytes of CSPRNG entropy, url-safe. This token is the ONLY thing standing
@@ -89,47 +89,6 @@ function num(v: string | number | null): number | null {
   if (v == null) return null
   const n = typeof v === 'string' ? Number(v) : v
   return Number.isFinite(n) ? n : null
-}
-
-const FIELD_TYPES = new Set(['text', 'money', 'date', 'number'])
-
-/**
- * Coerce a jsonb column into a field list.
- *
- * jsonb is schemaless, so a hand-edited row could contain anything. Anything
- * that isn't a well-formed field is dropped rather than trusted, because a
- * malformed `type` would silently change how a value is formatted on a legal
- * document.
- */
-export function parseFieldDefs(raw: unknown): ContractFieldDef[] {
-  if (!Array.isArray(raw)) return []
-  const out: ContractFieldDef[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const r = item as Record<string, unknown>
-    const key = typeof r.key === 'string' ? r.key.trim() : ''
-    if (!key) continue
-    const type = typeof r.type === 'string' && FIELD_TYPES.has(r.type) ? r.type : 'text'
-    out.push({
-      key,
-      label: typeof r.label === 'string' && r.label.trim() ? r.label.trim() : key,
-      type: type as ContractFieldDef['type'],
-      required: r.required === true,
-    })
-  }
-  return out
-}
-
-/** Coerce a jsonb column into a flat string map. */
-function parseFieldValues(raw: unknown): Record<string, string> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (v == null) continue
-    if (typeof v === 'string') out[k] = v
-    else if (typeof v === 'number' || typeof v === 'boolean') out[k] = String(v)
-  }
-  return out
 }
 
 function toTemplate(row: TemplateRow): ContractTemplate {

@@ -10,7 +10,13 @@
  * server routes and client components.
  */
 
-import type { ContractFieldDef, ContractTemplate, Customer, LightContract } from '@/lib/types'
+import type {
+  ContractFieldDef,
+  ContractFieldType,
+  ContractTemplate,
+  Customer,
+  LightContract,
+} from '@/lib/types'
 
 /** A field the user can drop into the contract wording. */
 export interface ContractField {
@@ -133,6 +139,48 @@ export function draftFromCustomer(customer: Customer): ContractDraft {
     customerEmail: customer.email ?? '',
     customerPhone: customer.phone ?? '',
   }
+}
+
+const FIELD_TYPES = new Set<ContractFieldType>(['text', 'money', 'date', 'number'])
+
+/**
+ * Coerce an untrusted jsonb value into field definitions.
+ *
+ * Anything malformed is dropped rather than thrown, so one bad row can't take
+ * down the contracts page or the public signing page.
+ */
+export function parseFieldDefs(raw: unknown): ContractFieldDef[] {
+  if (!Array.isArray(raw)) return []
+  const out: ContractFieldDef[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    const key = typeof r.key === 'string' ? r.key.trim() : ''
+    if (!key) continue
+    const type =
+      typeof r.type === 'string' && FIELD_TYPES.has(r.type as ContractFieldType)
+        ? (r.type as ContractFieldType)
+        : 'text'
+    out.push({
+      key,
+      label: typeof r.label === 'string' && r.label.trim() ? r.label.trim() : key,
+      type,
+      required: r.required === true,
+    })
+  }
+  return out
+}
+
+/** Coerce a jsonb column into a flat string map. */
+export function parseFieldValues(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (v == null) continue
+    if (typeof v === 'string') out[k] = v
+    else if (typeof v === 'number' || typeof v === 'boolean') out[k] = String(v)
+  }
+  return out
 }
 
 /**

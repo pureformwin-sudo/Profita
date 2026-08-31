@@ -9,11 +9,7 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { loadContractByToken } from '@/lib/contract-signing'
-import {
-  formatContractDate,
-  formatPrice,
-  toParagraphs,
-} from '@/lib/light-contracts'
+import { formatFieldValue, toParagraphs } from '@/lib/light-contracts'
 import { ContractSignForm } from '@/components/light-contracts/contract-sign-form'
 
 // A signature changes this page's content; never serve it from cache.
@@ -36,18 +32,12 @@ export default async function SignContractPage({
 
   const paragraphs = toParagraphs(contract.body)
 
-  const terms: { label: string; value: string }[] = [
-    { label: 'Price', value: formatPrice(contract.price) || '—' },
-    {
-      label: 'Term',
-      value:
-        contract.termYears == null
-          ? '—'
-          : `${contract.termYears} ${contract.termYears === 1 ? 'year' : 'years'}`,
-    },
-    { label: 'Install', value: formatContractDate(contract.installDate) || '—' },
-    { label: 'Takedown', value: formatContractDate(contract.takedownDate) || '—' },
-  ]
+  // Built from the field definitions frozen onto this contract, so the customer
+  // sees exactly the terms it was executed with even if the type changed since.
+  const terms = contract.fieldDefs.map((field) => ({
+    label: field.label,
+    value: formatFieldValue(field, contract.fieldValues[field.key]) || '—',
+  }))
 
   return (
     <main className="min-h-screen bg-muted/40 px-4 py-8 print:bg-white print:p-0">
@@ -68,7 +58,7 @@ export default async function SignContractPage({
           <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[#e2e8f0] pb-6">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#64748b]">
-                Christmas Lights Lease Agreement
+                {contract.documentTitle}
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-balance">
                 {contract.companyName || 'Service Agreement'}
@@ -95,19 +85,25 @@ export default async function SignContractPage({
               )}
             </div>
 
-            <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#64748b]">
-                Terms
-              </p>
-              <dl className="mt-2 space-y-1.5">
-                {terms.map((t) => (
-                  <div key={t.label} className="flex items-baseline justify-between gap-4 text-sm">
-                    <dt className="text-[#64748b]">{t.label}</dt>
-                    <dd className="font-medium tabular-nums">{t.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
+            {/* A wording-only contract type collects no structured fields. */}
+            {terms.length > 0 && (
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#64748b]">
+                  Terms
+                </p>
+                <dl className="mt-2 space-y-1.5">
+                  {terms.map((t) => (
+                    <div
+                      key={t.label}
+                      className="flex items-baseline justify-between gap-4 text-sm"
+                    >
+                      <dt className="text-[#64748b]">{t.label}</dt>
+                      <dd className="font-medium tabular-nums">{t.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
           </section>
 
           <div className="mt-8 border-t border-[#e2e8f0] pt-8">
