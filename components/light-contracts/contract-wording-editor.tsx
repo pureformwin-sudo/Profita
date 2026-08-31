@@ -26,6 +26,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
 import { AlertTriangle, Check, Copy, Plus, Trash2 } from 'lucide-react'
 import {
@@ -40,10 +50,15 @@ import {
 import type { ContractFieldDef, ContractTemplate } from '@/lib/types'
 
 interface ContractWordingEditorProps {
-  template: ContractTemplate | null
+  /** Every saved contract type. */
+  templates: ContractTemplate[]
   busy: boolean
   onSave: (draft: TemplateDraft) => void
+  onDelete: (templateId: string) => void
 }
+
+/** Sentinel for "create a new type", since SelectItem can't take an empty value. */
+const NEW_TYPE = 'new'
 
 const ORIGIN_LABELS: Record<string, string> = {
   customer: 'From customer record',
@@ -70,14 +85,35 @@ function toDraft(template: ContractTemplate | null): TemplateDraft {
   }
 }
 
-export function ContractWordingEditor({ template, busy, onSave }: ContractWordingEditorProps) {
-  const [draft, setDraft] = useState<TemplateDraft>(() => toDraft(template))
+export function ContractWordingEditor({
+  templates,
+  busy,
+  onSave,
+  onDelete,
+}: ContractWordingEditorProps) {
+  // Which type is being edited. NEW_TYPE means an unsaved new one.
+  const [selectedId, setSelectedId] = useState<string>(() => templates[0]?.id ?? NEW_TYPE)
   const [copied, setCopied] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
-  // Adopt the saved template once it arrives or the selection changes.
+  const template = useMemo(
+    () => templates.find((t) => t.id === selectedId) ?? null,
+    [templates, selectedId],
+  )
+
+  const [draft, setDraft] = useState<TemplateDraft>(() => toDraft(template))
+
+  // Adopt the saved row when the selection changes or a save round-trips.
+  // Keyed on id + updatedAt so typing is never clobbered mid-edit.
   useEffect(() => {
     setDraft(toDraft(template))
   }, [template?.id, template?.updatedAt])
+
+  // Once the first type saves, move the selection onto it so the editor isn't
+  // left sitting on a blank "new type" form showing none of the saved work.
+  useEffect(() => {
+    if (selectedId === NEW_TYPE && templates.length === 1) setSelectedId(templates[0].id)
+  }, [templates, selectedId])
 
   const saved = useMemo(() => toDraft(template), [template?.id, template?.updatedAt])
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
@@ -163,10 +199,56 @@ export function ContractWordingEditor({ template, busy, onSave }: ContractWordin
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="flex flex-col gap-6">
+        {/* Library picker -------------------------------------------------
+            Switching away from unsaved edits would lose them silently, so the
+            picker is disabled while dirty and explains why. */}
+        {templates.length > 0 && (
+          <Card className="flex flex-wrap items-end justify-between gap-4 p-4">
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <Label htmlFor="template-picker">Editing</Label>
+              <Select
+                value={selectedId}
+                onValueChange={setSelectedId}
+                disabled={dirty || busy}
+              >
+                <SelectTrigger id="template-picker" className="w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={NEW_TYPE}>+ New contract type</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {dirty
+                  ? 'Save or discard your changes before switching.'
+                  : `${templates.length} contract ${templates.length === 1 ? 'type' : 'types'} saved.`}
+              </p>
+            </div>
+
+            {template && (
+              <Button
+                variant="outline"
+                onClick={() => setConfirmDelete(true)}
+                disabled={busy || dirty}
+              >
+                <Trash2 className="mr-1.5 h-4 w-4" />
+                Delete type
+              </Button>
+            )}
+          </Card>
+        )}
+
         {/* Identity ------------------------------------------------------- */}
         <Card className="flex flex-col gap-4 p-4 sm:p-6">
           <div>
-            <h2 className="text-sm font-medium">Contract type</h2>
+            <h2 className="text-sm font-medium">
+              {template ? 'Contract type' : 'New contract type'}
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground text-pretty">
               How this agreement is labelled and numbered.
             </p>
@@ -413,7 +495,7 @@ export function ContractWordingEditor({ template, busy, onSave }: ContractWordin
                 </Button>
               )}
               <Button
-                onClick={() => onSave(draft)}
+                onClick={() => onSave({ ...draft, id: template?.id })}
                 disabled={busy || !dirty || fieldErrors.length > 0}
               >
                 {busy ? 'Saving…' : template ? 'Save changes' : 'Create contract type'}
@@ -474,6 +556,32 @@ export function ContractWordingEditor({ template, busy, onSave }: ContractWordin
           </p>
         </div>
       </Card>
+
+      {/* Existing contracts keep their own frozen copy of the wording, so
+          deleting a type never alters a document that's already been issued. */}
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{template?.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You won&apos;t be able to create new contracts of this type. Contracts already created
+              under it keep their own copy of the wording and are not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (template) onDelete(template.id)
+                setConfirmDelete(false)
+                setSelectedId(templates.find((t) => t.id !== template?.id)?.id ?? NEW_TYPE)
+              }}
+            >
+              Delete type
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

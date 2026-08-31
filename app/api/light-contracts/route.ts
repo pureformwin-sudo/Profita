@@ -1,5 +1,5 @@
 /**
- * Christmas lights lease contracts: list, create, update.
+ * Service contracts: list, create, update, delete.
  *
  * Company scoping comes from `resolveSendContext()`, the same helper the
  * messaging and lead-scoring routes use, so a caller can only ever touch

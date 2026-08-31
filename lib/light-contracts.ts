@@ -135,6 +135,25 @@ export function draftFromCustomer(customer: Customer): ContractDraft {
   }
 }
 
+/**
+ * Load an existing contract back into an editable draft.
+ *
+ * `fieldValues` is copied as-is rather than filtered against the current
+ * template, because the form renders the contract's own frozen `fieldDefs` —
+ * reopening an old contract must show what it was actually written with.
+ */
+export function draftFromContract(contract: LightContract): ContractDraft {
+  return {
+    customerId: contract.customerId,
+    customerName: contract.customerName,
+    serviceAddress: contract.serviceAddress ?? '',
+    customerEmail: contract.customerEmail ?? '',
+    customerPhone: contract.customerPhone ?? '',
+    notes: contract.notes ?? '',
+    fieldValues: { ...(contract.fieldValues ?? {}) },
+  }
+}
+
 export interface CompanyInfo {
   name: string
   phone: string
@@ -476,6 +495,8 @@ export function buildContractNumber(prefix: string, year: number, sequence: numb
  * type edits it in place instead of silently creating a second one.
  */
 export interface TemplateDraft {
+  /** Absent when creating a new type, present when editing an existing one. */
+  id?: string
   contractType: string
   name: string
   documentTitle: string

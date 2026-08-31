@@ -29,7 +29,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { FileText, MoreHorizontal, Plus, ScrollText } from 'lucide-react'
-import { formatContractDate, formatPrice } from '@/lib/light-contracts'
+import { formatFieldValue } from '@/lib/light-contracts'
 import type { LightContract } from '@/lib/types'
 
 interface ContractListProps {
@@ -76,14 +76,14 @@ export function ContractList({
           <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground text-pretty">
             {hasWording
               ? 'Create a contract for a customer and the document builds itself from your saved wording.'
-              : 'Start by pasting your lease agreement wording, then generate one contract per customer.'}
+              : 'Start by setting up a contract type — its wording, heading and the fields it collects. Then generate one contract per customer.'}
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-2">
           {!hasWording && (
             <Button variant="outline" onClick={onAddWording}>
               <ScrollText className="mr-1.5 h-4 w-4" />
-              Add wording
+              Add contract type
             </Button>
           )}
           <Button onClick={onNew}>
@@ -132,23 +132,29 @@ export function ContractList({
                     </p>
                   )}
 
+                  {/* Summarize whatever fields this contract type declares.
+                      Money leads and is emphasized; the rest follow labelled,
+                      so a roof wash reads "Service date Apr 3" without the
+                      list knowing anything about roof washes. */}
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    {contract.price != null && (
-                      <span className="font-medium tabular-nums text-foreground">
-                        {formatPrice(contract.price)}
-                      </span>
-                    )}
-                    {contract.termYears != null && (
-                      <span className="tabular-nums">
-                        {contract.termYears} {contract.termYears === 1 ? 'year' : 'years'}
-                      </span>
-                    )}
-                    {contract.installDate && (
-                      <span>Install {formatContractDate(contract.installDate)}</span>
-                    )}
-                    {contract.takedownDate && (
-                      <span>Takedown {formatContractDate(contract.takedownDate)}</span>
-                    )}
+                    {contract.fieldDefs
+                      .map((field) => ({
+                        field,
+                        text: formatFieldValue(field, contract.fieldValues[field.key]),
+                      }))
+                      .filter((entry) => entry.text)
+                      .map(({ field, text }) => (
+                        <span
+                          key={field.key}
+                          className={
+                            field.type === 'money'
+                              ? 'font-medium tabular-nums text-foreground'
+                              : 'tabular-nums'
+                          }
+                        >
+                          {field.type === 'money' ? text : `${field.label} ${text}`}
+                        </span>
+                      ))}
                   </div>
 
                   {isSigned && contract.signedAt && (
