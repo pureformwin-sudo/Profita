@@ -1,10 +1,13 @@
 'use client'
 
 /**
- * Christmas lights lease contracts.
+ * Service contracts.
  *
- * Three surfaces: the reusable Wording (paste the agreement text once), the
- * per-customer Contracts list, and the printable document preview.
+ * Three surfaces: Contract types (wording, heading, prefix and the fields each
+ * type collects), the per-customer Contracts list, and the printable document.
+ *
+ * Nothing here is service-specific — a contract's shape comes entirely from the
+ * type it was created under.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -20,27 +23,29 @@ import { AlertTriangle, FileText, Plus, Printer, ScrollText, Send } from 'lucide
 import type { Customer, ContractTemplate, LightContract } from '@/lib/types'
 import { getCustomers, getSettings } from '@/lib/storage'
 import {
+  draftFromContract,
   draftFromCustomer,
-  draftToRecord,
   emptyDraft,
   type ContractDraft,
+  type TemplateDraft,
 } from '@/lib/light-contracts'
 import { ContractWordingEditor } from '@/components/light-contracts/contract-wording-editor'
 import { ContractList } from '@/components/light-contracts/contract-list'
 import { ContractForm } from '@/components/light-contracts/contract-form'
 import { ContractDocument } from '@/components/light-contracts/contract-document'
 
-// Both files are required, in order: 021 creates the tables, 022 adds the
-// customer signing columns. Running only 021 leaves /sign broken.
+// All three are required, in order: 021 creates the tables, 022 adds the
+// customer signing columns, 023 adds the per-type metadata and custom fields.
 const SETUP_SQL = [
   'scripts/migrations/021-christmas-light-contracts.sql',
   'scripts/migrations/022-contract-signing.sql',
+  'scripts/migrations/023-generic-contracts.sql',
 ]
 
 export default function ContractsPage() {
   const [loading, setLoading] = useState(true)
   const [needsSetup, setNeedsSetup] = useState(false)
-  const [template, setTemplate] = useState<ContractTemplate | null>(null)
+  const [templates, setTemplates] = useState<ContractTemplate[]>([])
   const [contracts, setContracts] = useState<LightContract[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [company, setCompany] = useState({ name: '', phone: '', email: '' })
@@ -48,6 +53,8 @@ export default function ContractsPage() {
   const [tab, setTab] = useState('contracts')
   const [editing, setEditing] = useState<LightContract | null>(null)
   const [draft, setDraft] = useState<ContractDraft | null>(null)
+  /** Which contract type a new contract is being created under. */
+  const [draftTemplateId, setDraftTemplateId] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -66,7 +73,7 @@ export default function ContractsPage() {
       if (!contractsRes.ok) throw new Error(data.error ?? 'Failed to load contracts')
 
       setNeedsSetup(Boolean(data.needsSetup))
-      setTemplate(data.template ?? null)
+      setTemplates(data.templates ?? [])
       setContracts(data.contracts ?? [])
       setCustomers(customerList)
 
@@ -90,24 +97,79 @@ export default function ContractsPage() {
     [contracts, previewId],
   )
 
-  const hasWording = Boolean(template?.body?.trim())
+  /**
+   * The type behind the previewed contract.
+   *
+   * Only used for drafts — anything finalized renders from its own snapshot, so
+   * this being null (type since deleted) can't blank out an executed document.
+   */
+  const previewTemplate = useMemo(
+    () => templates.find((t) => t.id === previewContract?.templateId) ?? null,
+    [templates, previewContract],
+  )
 
-  // -- template ------------------------------------------------------------
+  /** The type a draft is being written against, for live field rendering. */
+  const draftTemplate = useMemo(
+    () => templates.find((t) => t.id === draftTemplateId) ?? null,
+    [templates, draftTemplateId],
+  )
 
-  async function handleSaveWording(body: string) {
+  /**
+   * Which fields the form collects.
+   *
+   * Editing an existing contract uses its own frozen defs, so reopening an old
+   * contract shows the fields it was actually written with rather than whatever
+   * its type looks like today.
+   */
+  const formFields = useMemo(
+    () => (editing ? editing.fieldDefs : draftTemplate?.fields ?? []),
+    [editing, draftTemplate],
+  )
+
+  /** At least one usable type exists — required before any contract can exist. */
+  const hasWording = templates.some((t) => t.body.trim())
+
+  // -- contract types ------------------------------------------------------
+
+  async function handleSaveTemplate(input: TemplateDraft) {
     setSaving(true)
     try {
       const res = await fetch('/api/light-contracts/template', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify(input),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed to save wording')
-      setTemplate(data.template)
-      toast.success('Contract wording saved')
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save contract type')
+
+      const saved = data.template as ContractTemplate
+      setTemplates((prev) => {
+        const exists = prev.some((t) => t.id === saved.id)
+        return exists ? prev.map((t) => (t.id === saved.id ? saved : t)) : [...prev, saved]
+      })
+      toast.success(`${saved.name} saved`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save wording')
+      toast.error(err instanceof Error ? err.message : 'Failed to save contract type')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDeleteTemplate(templateId: string) {
+    setSaving(true)
+    try {
+      const res = await fetch(
+        `/api/light-contracts/template?id=${encodeURIComponent(templateId)}`,
+        { method: 'DELETE' },
+      )
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to delete contract type')
+
+      setTemplates((prev) => prev.filter((t) => t.id !== templateId))
+      if (draftTemplateId === templateId) setDraftTemplateId(null)
+      toast.success('Contract type deleted')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete contract type')
     } finally {
       setSaving(false)
     }
@@ -118,23 +180,16 @@ export default function ContractsPage() {
   function startNew() {
     setEditing(null)
     setDraft(emptyDraft())
+    // Preselect when there's only one type, so the common case skips a click.
+    const usable = templates.filter((t) => t.body.trim())
+    setDraftTemplateId(usable.length === 1 ? usable[0].id : null)
     setTab('editor')
   }
 
   function startEdit(contract: LightContract) {
     setEditing(contract)
-    setDraft({
-      customerId: contract.customerId,
-      customerName: contract.customerName,
-      serviceAddress: contract.serviceAddress ?? '',
-      customerEmail: contract.customerEmail ?? '',
-      customerPhone: contract.customerPhone ?? '',
-      price: contract.price == null ? '' : String(contract.price),
-      termYears: contract.termYears == null ? '' : String(contract.termYears),
-      installDate: contract.installDate ?? '',
-      takedownDate: contract.takedownDate ?? '',
-      notes: contract.notes ?? '',
-    })
+    setDraftTemplateId(contract.templateId)
+    setDraft(draftFromContract(contract))
     setTab('editor')
   }
 
@@ -146,11 +201,23 @@ export default function ContractsPage() {
     if (!draft) return
     setSaving(true)
     try {
-      const payload = draftToRecord(draft)
+      // Send the raw field values; the server re-validates and normalizes them
+      // against the type's own field list rather than trusting the client.
+      const payload = {
+        customerId: draft.customerId,
+        customerName: draft.customerName,
+        serviceAddress: draft.serviceAddress,
+        customerEmail: draft.customerEmail,
+        customerPhone: draft.customerPhone,
+        notes: draft.notes,
+        fieldValues: draft.fieldValues,
+      }
       const res = await fetch('/api/light-contracts', {
         method: editing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editing ? { id: editing.id, ...payload } : payload),
+        body: JSON.stringify(
+          editing ? { id: editing.id, ...payload } : { templateId: draftTemplateId, ...payload },
+        ),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to save contract')
@@ -261,11 +328,10 @@ export default function ContractsPage() {
       <div className="p-4 lg:p-6 pb-24 lg:pb-6 space-y-6 max-w-7xl mx-auto w-full overflow-x-hidden">
         <header className="flex flex-wrap items-start justify-between gap-4 print:hidden">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-balance">
-              Christmas Lights Contracts
-            </h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-balance">Contracts</h1>
             <p className="mt-1 text-sm text-muted-foreground text-pretty">
-              Paste your lease wording once, then generate a finished document per customer.
+              Set up a contract type once, then generate a finished, signable document per
+              customer.
             </p>
           </div>
           <Button onClick={startNew} disabled={needsSetup}>
@@ -314,12 +380,16 @@ export default function ContractsPage() {
               </TabsTrigger>
               <TabsTrigger value="wording">
                 <ScrollText className="mr-1.5 h-4 w-4" />
-                Wording
-                {!hasWording && (
+                Contract types
+                {!hasWording ? (
                   <span
                     className="ml-2 h-1.5 w-1.5 rounded-full bg-amber-500"
-                    aria-label="No wording added yet"
+                    aria-label="No contract type set up yet"
                   />
+                ) : (
+                  <Badge variant="secondary" className="ml-2 tabular-nums">
+                    {templates.length}
+                  </Badge>
                 )}
               </TabsTrigger>
               <TabsTrigger value="preview" disabled={!previewContract}>
@@ -357,6 +427,10 @@ export default function ContractsPage() {
                   customers={customers}
                   editing={editing}
                   busy={saving}
+                  fields={formFields}
+                  templates={templates.filter((t) => t.body.trim())}
+                  templateId={draftTemplateId}
+                  onTemplateChange={setDraftTemplateId}
                   onChange={setDraft}
                   onPickCustomer={pickCustomer}
                   onSave={handleSaveContract}
@@ -371,9 +445,10 @@ export default function ContractsPage() {
 
             <TabsContent value="wording">
               <ContractWordingEditor
-                template={template}
+                templates={templates}
                 busy={saving}
-                onSave={handleSaveWording}
+                onSave={handleSaveTemplate}
+                onDelete={handleDeleteTemplate}
               />
             </TabsContent>
 
@@ -405,7 +480,7 @@ export default function ContractsPage() {
                         <Button
                           variant="outline"
                           onClick={() => handleFinalize(previewContract, 'finalize')}
-                          disabled={saving || !hasWording}
+                          disabled={saving || !previewTemplate?.body?.trim()}
                         >
                           Finalize
                         </Button>
@@ -437,21 +512,30 @@ export default function ContractsPage() {
                     </div>
                   </div>
 
-                  {!hasWording && (
-                    <Alert className="print:hidden">
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertTitle>No contract wording yet</AlertTitle>
-                      <AlertDescription>
-                        The header and terms will render, but the body will be empty until you paste
-                        your agreement text in the Wording tab.
-                      </AlertDescription>
-                    </Alert>
-                  )}
+                  {/* Only meaningful for a draft: a finalized contract carries
+                      its own frozen wording and doesn't need the template. */}
+                  {previewContract.status === 'draft' &&
+                    !previewTemplate?.body?.trim() && (
+                      <Alert className="print:hidden">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>
+                          {previewTemplate
+                            ? 'No wording on this contract type yet'
+                            : 'This contract type was deleted'}
+                        </AlertTitle>
+                        <AlertDescription>
+                          {previewTemplate
+                            ? 'The header and terms will render, but the body stays empty until you add wording under Contract types.'
+                            : 'The wording behind this draft no longer exists. Recreate the contract under a current type.'}
+                        </AlertDescription>
+                      </Alert>
+                    )}
 
                   <Card className="overflow-hidden p-0 print:border-0 print:shadow-none">
                     <ContractDocument
                       contract={previewContract}
-                      templateBody={template?.body ?? ''}
+                      templateBody={previewTemplate?.body ?? ''}
+                      templateFields={previewTemplate?.fields}
                       company={company}
                     />
                   </Card>

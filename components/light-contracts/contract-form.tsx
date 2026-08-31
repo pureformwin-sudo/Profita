@@ -23,17 +23,37 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertTriangle, Info } from 'lucide-react'
 import { validateDraft, type ContractDraft } from '@/lib/light-contracts'
-import type { Customer, LightContract } from '@/lib/types'
+import type { ContractFieldDef, ContractTemplate, Customer, LightContract } from '@/lib/types'
 
 interface ContractFormProps {
   draft: ContractDraft
   customers: Customer[]
   editing: LightContract | null
   busy: boolean
+  /** The fields to collect, from the selected contract type. */
+  fields: ContractFieldDef[]
+  /** Available contract types, for the picker shown when creating. */
+  templates: ContractTemplate[]
+  templateId: string | null
+  onTemplateChange: (templateId: string) => void
   onChange: (draft: ContractDraft) => void
   onPickCustomer: (customer: Customer) => void
   onSave: () => void
   onCancel: () => void
+}
+
+/** Map a field type onto sensible input attributes. */
+function inputPropsFor(field: ContractFieldDef) {
+  switch (field.type) {
+    case 'money':
+      return { type: 'number', inputMode: 'decimal' as const, min: '0', step: '0.01', placeholder: '1850.00' }
+    case 'number':
+      return { type: 'number', inputMode: 'numeric' as const, step: '1', placeholder: '3' }
+    case 'date':
+      return { type: 'date' }
+    default:
+      return { type: 'text' }
+  }
 }
 
 export function ContractForm({
@@ -41,18 +61,30 @@ export function ContractForm({
   customers,
   editing,
   busy,
+  fields,
+  templates,
+  templateId,
+  onTemplateChange,
   onChange,
   onPickCustomer,
   onSave,
   onCancel,
 }: ContractFormProps) {
   const [touched, setTouched] = useState(false)
-  const issues = useMemo(() => validateDraft(draft), [draft])
-  const canSave = issues.errors.length === 0 && !busy
+  const issues = useMemo(() => validateDraft(draft, fields), [draft, fields])
+  // A new contract must have a type: it supplies the wording, heading, prefix
+  // and field list, none of which have a safe default.
+  const canSave = issues.errors.length === 0 && !busy && (!!editing || !!templateId)
 
   function set<K extends keyof ContractDraft>(key: K, value: ContractDraft[K]) {
     onChange({ ...draft, [key]: value })
   }
+
+  function setField(key: string, value: string) {
+    onChange({ ...draft, fieldValues: { ...draft.fieldValues, [key]: value } })
+  }
+
+  const selectedTemplate = templates.find((t) => t.id === templateId) ?? null
 
   const sortedCustomers = useMemo(
     () => [...customers].sort((a, b) => a.name.localeCompare(b.name)),
@@ -70,6 +102,40 @@ export function ContractForm({
             These values fill the placeholders in your wording.
           </p>
         </div>
+
+        {/* Contract type ---------------------------------------------------
+            Only offered while creating. Switching type on an existing draft
+            would strip values for fields the new type doesn't have, so the
+            type is fixed once the contract exists. */}
+        {editing ? (
+          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+            <span className="text-xs text-muted-foreground">Contract type</span>
+            <span className="text-xs font-medium">{editing.documentTitle}</span>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="contract-type">
+              Contract type <span className="text-destructive">*</span>
+            </Label>
+            <Select value={templateId ?? undefined} onValueChange={onTemplateChange}>
+              <SelectTrigger id="contract-type">
+                <SelectValue placeholder="Select a contract type" />
+              </SelectTrigger>
+              <SelectContent>
+                {templates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {selectedTemplate
+                ? `Numbered ${selectedTemplate.numberPrefix}-${new Date().getFullYear()}-…`
+                : 'Determines the wording, heading and fields collected below.'}
+            </p>
+          </div>
+        )}
 
         {/* Customer -------------------------------------------------------- */}
         <div className="grid gap-4 sm:grid-cols-2">
@@ -126,7 +192,7 @@ export function ContractForm({
               placeholder="1420 Elm Street, Springfield, OH 45501"
             />
             <p className="text-xs text-muted-foreground">
-              Where the lights go — not necessarily the billing address.
+              Where the work happens — not necessarily the billing address.
             </p>
           </div>
 
@@ -155,54 +221,28 @@ export function ContractForm({
 
         {/* Deal ------------------------------------------------------------ */}
         <div className="grid gap-4 border-t pt-5 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="price">Price</Label>
-            <Input
-              id="price"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={draft.price}
-              onChange={(e) => set('price', e.target.value)}
-              placeholder="1850.00"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="term-years">Term (years)</Label>
-            <Input
-              id="term-years"
-              type="number"
-              inputMode="numeric"
-              min="1"
-              max="25"
-              step="1"
-              value={draft.termYears}
-              onChange={(e) => set('termYears', e.target.value)}
-              placeholder="3"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="install-date">Install date</Label>
-            <Input
-              id="install-date"
-              type="date"
-              value={draft.installDate}
-              onChange={(e) => set('installDate', e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="takedown-date">Takedown date</Label>
-            <Input
-              id="takedown-date"
-              type="date"
-              value={draft.takedownDate}
-              onChange={(e) => set('takedownDate', e.target.value)}
-            />
-          </div>
+          {/* Generated from the contract type's own field list, so a roof wash
+              collects a service date where a lights lease collects a term. */}
+          {fields.map((field) => {
+            const props = inputPropsFor(field)
+            return (
+              <div key={field.key} className="flex flex-col gap-1.5">
+                <Label htmlFor={`field-${field.key}`}>
+                  {field.label}
+                  {field.required && <span className="text-destructive"> *</span>}
+                </Label>
+                <Input
+                  id={`field-${field.key}`}
+                  {...props}
+                  value={draft.fieldValues[field.key] ?? ''}
+                  onChange={(e) => setField(field.key, e.target.value)}
+                  aria-invalid={
+                    touched && field.required && !(draft.fieldValues[field.key] ?? '').trim()
+                  }
+                />
+              </div>
+            )
+          })}
 
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <Label htmlFor="notes">Additional terms</Label>

@@ -418,7 +418,11 @@ export type InAppNotificationType =
   | 'system_update'
 
 // ---------------------------------------------------------------------------
-// Christmas lights lease contracts
+// Service contracts
+//
+// The table is still named `light_contracts` for historical reasons, but the
+// shape of a contract is no longer lights-specific: each contract type declares
+// its own fields on its template (see ContractFieldDef).
 // ---------------------------------------------------------------------------
 
 /**
@@ -431,13 +435,38 @@ export type LightContractStatus = 'draft' | 'final' | 'signed'
 /** How the customer produced their signature. */
 export type SignatureKind = 'typed' | 'drawn'
 
+/** Input type for a template-declared custom field. */
+export type ContractFieldType = 'text' | 'money' | 'date' | 'number'
+
+/**
+ * One custom field that a contract type collects.
+ *
+ * This is what makes contracts service-agnostic: a lights lease declares
+ * term/install/takedown, a roof wash declares service date + guarantee period,
+ * and neither shape is baked into the table definition.
+ */
+export interface ContractFieldDef {
+  /** Placeholder token, e.g. `service_date` for `{{service_date}}`. */
+  key: string
+  label: string
+  type: ContractFieldType
+  required: boolean
+}
+
 /** Reusable boilerplate wording. One row per company per contract type. */
 export interface ContractTemplate {
   id: string
   contractType: string
+  /** Short label used in the template picker. */
   name: string
   /** Raw wording with {{placeholders}}. Supplied by the user. */
   body: string
+  /** Printed heading, e.g. 'ROOF SOFT WASH AGREEMENT'. */
+  documentTitle: string
+  /** Contract number prefix: 'RSW' produces RSW-2026-001. */
+  numberPrefix: string
+  /** The custom fields this contract type collects. */
+  fields: ContractFieldDef[]
   createdAt: string
   updatedAt: string
 }
@@ -455,12 +484,36 @@ export interface LightContract {
   serviceAddress: string | null
   customerEmail: string | null
   customerPhone: string | null
+  notes: string | null
+
+  /** Template this came from. Null if that template was later deleted. */
+  templateId: string | null
+  /** Heading, frozen at creation so editing a template can't retitle this. */
+  documentTitle: string
+  /** Number prefix actually printed on this document. */
+  numberPrefix: string
+  /** Raw values for the custom fields, keyed by field key. */
+  fieldValues: Record<string, string>
+  /**
+   * Field definitions frozen with the contract.
+   *
+   * Values alone can't be rendered — without labels and types, "1850.00" has
+   * no caption and no currency formatting. Freezing the defs means editing or
+   * deleting a template never relabels an executed agreement.
+   */
+  fieldDefs: ContractFieldDef[]
+
+  /**
+   * Legacy lights columns, retained so historical contracts and any existing
+   * reporting keep working. `price` is still mirrored from a template money
+   * field named `price`; the other three are no longer written.
+   */
   price: number | null
   termYears: number | null
   installDate: string | null
   takedownDate: string | null
-  notes: string | null
-  /** Wording frozen at finalize time. Null while still a draft. */
+
+  /** Wording frozen at finalize time, fully rendered. Null while a draft. */
   bodySnapshot: string | null
   status: LightContractStatus
   finalizedAt: string | null

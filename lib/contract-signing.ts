@@ -16,7 +16,8 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import type { SignatureKind } from '@/lib/types'
+import { parseFieldDefs, parseFieldValues } from '@/lib/light-contracts'
+import type { ContractFieldDef, SignatureKind } from '@/lib/types'
 
 /** Max size of a drawn-signature PNG. Guards against multi-MB payloads. */
 const MAX_SIGNATURE_BYTES = 400_000
@@ -37,10 +38,11 @@ export interface PublicContract {
   contractNumber: string
   customerName: string
   serviceAddress: string | null
-  price: number | null
-  termYears: number | null
-  installDate: string | null
-  takedownDate: string | null
+  /** Heading, frozen on the contract — never derived from a live template. */
+  documentTitle: string
+  /** Field definitions frozen with the contract, for the terms summary. */
+  fieldDefs: ContractFieldDef[]
+  fieldValues: Record<string, string>
   notes: string | null
   /** Frozen wording. Never the live template. */
   body: string
@@ -72,10 +74,9 @@ interface TokenRow {
   contract_number: string
   customer_name: string
   service_address: string | null
-  price: string | number | null
-  term_years: number | null
-  install_date: string | null
-  takedown_date: string | null
+  document_title: string | null
+  field_defs: unknown
+  field_values: unknown
   notes: string | null
   body_snapshot: string | null
   status: string
@@ -104,8 +105,8 @@ export async function loadContractByToken(token: string): Promise<PublicContract
   const { data: raw, error } = await supabase
     .from('light_contracts')
     .select(
-      'contract_number, customer_name, service_address, price, term_years, install_date, ' +
-        'takedown_date, notes, body_snapshot, status, company_signature_name, ' +
+      'contract_number, customer_name, service_address, document_title, field_defs, ' +
+        'field_values, notes, body_snapshot, status, company_signature_name, ' +
         'company_signed_at, signature_kind, signature_name, signature_image, signed_at, company_id',
     )
     .eq('share_token', token)
@@ -131,10 +132,9 @@ export async function loadContractByToken(token: string): Promise<PublicContract
     contractNumber: data.contract_number,
     customerName: data.customer_name,
     serviceAddress: data.service_address,
-    price: num(data.price),
-    termYears: data.term_years,
-    installDate: data.install_date,
-    takedownDate: data.takedown_date,
+    documentTitle: data.document_title ?? 'Service Agreement',
+    fieldDefs: parseFieldDefs(data.field_defs),
+    fieldValues: parseFieldValues(data.field_values),
     notes: data.notes,
     body: data.body_snapshot,
     status: data.status,

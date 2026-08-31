@@ -11,43 +11,49 @@
 import { Fragment } from 'react'
 import {
   buildContractValues,
-  formatContractDate,
-  formatPrice,
+  formatFieldValue,
   formatSignedStamp,
   renderContractBody,
   toParagraphs,
   type CompanyInfo,
 } from '@/lib/light-contracts'
-import type { LightContract } from '@/lib/types'
+import type { ContractFieldDef, LightContract } from '@/lib/types'
 
 interface ContractDocumentProps {
   contract: LightContract
   /** Template wording. Ignored when the contract has a frozen snapshot. */
   templateBody: string
+  /**
+   * The template's CURRENT field definitions. Used for drafts only, so editing
+   * a template's fields is reflected in a draft that hasn't been issued yet.
+   */
+  templateFields?: ContractFieldDef[]
   company: CompanyInfo
 }
 
-export function ContractDocument({ contract, templateBody, company }: ContractDocumentProps) {
-  // A finalized contract always shows its frozen wording, never the current
-  // template — that's the whole point of the snapshot.
+export function ContractDocument({
+  contract,
+  templateBody,
+  templateFields,
+  company,
+}: ContractDocumentProps) {
+  // A draft tracks the live template; anything issued uses only what was
+  // frozen onto it, so editing or deleting the template can't alter a document
+  // the customer already has.
+  const fields =
+    contract.status === 'draft' ? templateFields ?? contract.fieldDefs : contract.fieldDefs
+
   const body = contract.bodySnapshot ?? renderContractBody(
     templateBody,
-    buildContractValues(contract, company),
+    buildContractValues(contract, company, fields),
+    fields,
   )
   const paragraphs = toParagraphs(body)
 
-  const terms: { label: string; value: string }[] = [
-    { label: 'Price', value: formatPrice(contract.price) || '—' },
-    {
-      label: 'Term',
-      value:
-        contract.termYears == null
-          ? '—'
-          : `${contract.termYears} ${contract.termYears === 1 ? 'year' : 'years'}`,
-    },
-    { label: 'Install', value: formatContractDate(contract.installDate) || '—' },
-    { label: 'Takedown', value: formatContractDate(contract.takedownDate) || '—' },
-  ]
+  const terms = fields.map((field) => ({
+    label: field.label,
+    value: formatFieldValue(field, contract.fieldValues[field.key]) || '—',
+  }))
 
   return (
     <div
@@ -57,7 +63,7 @@ export function ContractDocument({ contract, templateBody, company }: ContractDo
       <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[#e2e8f0] pb-6">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#64748b]">
-            Christmas Lights Lease Agreement
+            {contract.documentTitle}
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-balance">
             {company.name || 'Your Business'}
@@ -98,17 +104,23 @@ export function ContractDocument({ contract, templateBody, company }: ContractDo
           )}
         </div>
 
-        <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#64748b]">Terms</p>
-          <dl className="mt-2 space-y-1.5">
-            {terms.map((t) => (
-              <div key={t.label} className="flex items-baseline justify-between gap-4 text-sm">
-                <dt className="text-[#64748b]">{t.label}</dt>
-                <dd className="font-medium tabular-nums">{t.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
+        {/* A contract type may collect no structured fields at all — wording
+            only. Omit the box entirely rather than printing an empty heading. */}
+        {terms.length > 0 && (
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#64748b]">
+              Terms
+            </p>
+            <dl className="mt-2 space-y-1.5">
+              {terms.map((t) => (
+                <div key={t.label} className="flex items-baseline justify-between gap-4 text-sm">
+                  <dt className="text-[#64748b]">{t.label}</dt>
+                  <dd className="font-medium tabular-nums">{t.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
       </section>
 
       <div className="mt-8 border-t border-[#e2e8f0] pt-8">
