@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { getCustomers, addCustomer, deleteCustomer, updateCustomer, getIncome, getJobs, getEstimates, getInvoices } from '@/lib/storage'
 import { Customer, Income, Job, Estimate, Invoice } from '@/lib/types'
 import { toast } from 'sonner'
-import { Plus, Trash2, Phone, MapPin, Search, Pencil, Mail, MoreVertical, Users, AlertCircle, DollarSign, MessageSquare } from 'lucide-react'
+import { Plus, Trash2, Phone, MapPin, Search, Pencil, Mail, MoreVertical, Users, AlertCircle, DollarSign, MessageSquare, Sparkles } from 'lucide-react'
+import Link from 'next/link'
 import { useContactLog } from '@/components/use-contact-log'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
@@ -239,11 +240,20 @@ if (result) {
               <span className="font-medium text-foreground">${avgCustomerValue.toFixed(0)}</span> avg
             </p>
           </div>
-          <Button onClick={() => setShowForm(!showForm)} size="sm" className="gap-2 shrink-0">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Add Customer</span>
-            <span className="sm:hidden">Add</span>
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button asChild variant="outline" size="sm" className="gap-2">
+              <Link href="/customers/cleanup">
+                <Sparkles className="h-4 w-4" />
+                <span className="hidden sm:inline">Clean up data</span>
+                <span className="sm:hidden">Clean</span>
+              </Link>
+            </Button>
+            <Button onClick={() => setShowForm(!showForm)} size="sm" className="gap-2">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Add Customer</span>
+              <span className="sm:hidden">Add</span>
+            </Button>
+          </div>
         </div>
 
         {/* Add Customer Form */}
