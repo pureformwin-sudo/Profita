@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import {
@@ -21,23 +21,45 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { getCustomers, updateCustomer } from '@/lib/storage'
 import {
+  auditCustomers,
   REASON_LABELS,
   type CleanupFlagReason,
   type CleanupSuggestion,
 } from '@/lib/customer-cleanup'
-import {
-  applyCustomerCleanup,
-  runCustomerAudit,
-  type AuditResult,
-  type CleanupDecision,
-} from './actions'
+
+interface Counts {
+  total: number
+  autoFixable: number
+  needsReview: number
+  clean: number
+}
 
 interface RowState {
   included: boolean
   name: string
   /** null => clear the phone on apply. */
   phone: string | null
+}
+
+/** A single reviewed write: only the fields that actually change are set. */
+interface CleanupDecision {
+  customerId: string
+  name?: string
+  /** Empty string clears the phone; undefined leaves it untouched. */
+  phone?: string
+}
+
+function computeCounts(suggestions: CleanupSuggestion[]): Counts {
+  const autoFixable = suggestions.filter((s) => s.autoFixed).length
+  const needsReview = suggestions.filter((s) => s.needsReview).length
+  return {
+    total: suggestions.length,
+    autoFixable,
+    needsReview,
+    clean: suggestions.length - autoFixable - needsReview,
+  }
 }
 
 function initialRowState(s: CleanupSuggestion): RowState {
@@ -48,29 +70,52 @@ function initialRowState(s: CleanupSuggestion): RowState {
   }
 }
 
+function buildRows(suggestions: CleanupSuggestion[]): Record<string, RowState> {
+  const map: Record<string, RowState> = {}
+  for (const s of suggestions) {
+    if (s.autoFixed || s.needsReview) map[s.customerId] = initialRowState(s)
+  }
+  return map
+}
+
 function phoneDisplay(phone: string | null): string {
   return phone ?? ''
 }
 
-export function CleanupReview({
-  initialSuggestions,
-  initialCounts,
-}: {
-  initialSuggestions: CleanupSuggestion[]
-  initialCounts: AuditResult['counts']
-}) {
-  const [suggestions, setSuggestions] = useState(initialSuggestions)
-  const [counts, setCounts] = useState(initialCounts)
-  const [isPending, startTransition] = useTransition()
+export function CleanupReview() {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [suggestions, setSuggestions] = useState<CleanupSuggestion[]>([])
+  const [counts, setCounts] = useState<Counts>({
+    total: 0,
+    autoFixable: 0,
+    needsReview: 0,
+    clean: 0,
+  })
 
   // Per-customer editable decision state, keyed by id.
-  const [rows, setRows] = useState<Record<string, RowState>>(() => {
-    const map: Record<string, RowState> = {}
-    for (const s of initialSuggestions) {
-      if (s.autoFixed || s.needsReview) map[s.customerId] = initialRowState(s)
-    }
-    return map
-  })
+  const [rows, setRows] = useState<Record<string, RowState>>({})
+
+  // Fetch client-side, exactly like the customers list: getCustomers() reads
+  // through the browser Supabase client whose session RLS depends on. Running
+  // it server-side (a server action) returns zero rows because there's no
+  // session there — that was the bug this replaces.
+  const loadAudit = useCallback(async () => {
+    const customers = await getCustomers()
+    const fresh = auditCustomers(customers)
+    setSuggestions(fresh)
+    setCounts(computeCounts(fresh))
+    setRows(buildRows(fresh))
+  }, [])
+
+  useEffect(() => {
+    loadAudit()
+      .catch((err) => {
+        console.error('Customer audit failed:', err)
+        toast.error('Could not load customers to audit.')
+      })
+      .finally(() => setLoading(false))
+  }, [loadAudit])
 
   const autoFixSuggestions = useMemo(
     () => suggestions.filter((s) => s.autoFixed),
@@ -106,7 +151,7 @@ export function CleanupReview({
     [rows],
   )
 
-  const handleApply = () => {
+  const handleApply = async () => {
     const decisions: CleanupDecision[] = []
     for (const s of suggestions) {
       const row = rows[s.customerId]
@@ -129,36 +174,70 @@ export function CleanupReview({
       return
     }
 
-    startTransition(async () => {
-      const { appliedCount, failures } = await applyCustomerCleanup(decisions)
+    setSaving(true)
 
-      if (appliedCount > 0) {
-        toast.success(`Updated ${appliedCount} customer${appliedCount === 1 ? '' : 's'}.`)
-      }
-      if (failures.length > 0) {
-        toast.error(
-          `${failures.length} failed: ${failures
-            .slice(0, 3)
-            .map((f) => f.name)
-            .join(', ')}${failures.length > 3 ? '…' : ''}`,
-        )
-      }
+    // Best-effort batch: attempt every decision, collect per-row outcomes, then
+    // re-audit so the screen reflects exactly what landed. Writes go through the
+    // same client-side updateCustomer() the customers list edit uses.
+    const failures: { name: string; error: string }[] = []
+    let appliedCount = 0
 
-      // Re-audit so the screen reflects exactly what landed.
-      const fresh = await runCustomerAudit()
-      setSuggestions(fresh.suggestions)
-      setCounts(fresh.counts)
-      setRows(() => {
-        const map: Record<string, RowState> = {}
-        for (const s of fresh.suggestions) {
-          if (s.autoFixed || s.needsReview) map[s.customerId] = initialRowState(s)
+    for (const decision of decisions) {
+      const updates: { name?: string; phone?: string } = {}
+      if (decision.name !== undefined) updates.name = decision.name
+      if (decision.phone !== undefined) updates.phone = decision.phone
+
+      try {
+        const result = await updateCustomer(decision.customerId, updates)
+        if (result) {
+          appliedCount += 1
+        } else {
+          failures.push({
+            name: decision.name ?? decision.customerId,
+            error: 'no row',
+          })
         }
-        return map
-      })
-    })
+      } catch (err) {
+        failures.push({
+          name: decision.name ?? decision.customerId,
+          error: err instanceof Error ? err.message : 'unknown error',
+        })
+      }
+    }
+
+    if (appliedCount > 0) {
+      toast.success(`Updated ${appliedCount} customer${appliedCount === 1 ? '' : 's'}.`)
+    }
+    if (failures.length > 0) {
+      toast.error(
+        `${failures.length} failed: ${failures
+          .slice(0, 3)
+          .map((f) => f.name)
+          .join(', ')}${failures.length > 3 ? '…' : ''}`,
+      )
+    }
+
+    try {
+      await loadAudit()
+    } catch (err) {
+      console.error('Re-audit after apply failed:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const nothingToDo = autoFixSuggestions.length === 0 && reviewSuggestions.length === 0
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <div className="text-center space-y-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
+          <p className="text-muted-foreground">Auditing your customers…</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -310,8 +389,8 @@ export function CleanupReview({
             <span className="text-sm text-muted-foreground">
               {selectedCount} selected
             </span>
-            <Button onClick={handleApply} disabled={isPending || selectedCount === 0} className="gap-2">
-              {isPending ? (
+            <Button onClick={handleApply} disabled={saving || selectedCount === 0} className="gap-2">
+              {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Applying…

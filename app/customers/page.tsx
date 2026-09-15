@@ -21,6 +21,7 @@ import { customerTag } from '@/lib/ai/insights'
 import { CustomerDetailDrawer } from '@/components/customer-detail-drawer'
 import { useRouter } from 'next/navigation'
 import { notifyCustomerAdded } from '@/lib/in-app-notifications'
+import { CustomersExportDialog } from '@/components/customers-export-dialog'
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -241,6 +242,7 @@ if (result) {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <CustomersExportDialog customers={customers} jobs={jobs} />
             <Button asChild variant="outline" size="sm" className="gap-2">
               <Link href="/customers/cleanup">
                 <Sparkles className="h-4 w-4" />
