@@ -4,22 +4,25 @@ import { customerLifetimeValue } from '@/lib/ai/insights'
 // SMS campaign CSV export.
 //
 // Two independent gates decide who lands in the list:
-//   1. at least one job with the LITERAL status 'Completed' — Scheduled,
-//      On the way, In progress do not count, and (per product decision) the
-//      downstream Invoiced/Paid/Closed statuses do NOT count either.
+//   1. at least one job whose work was actually delivered — Completed,
+//      Invoiced, Paid, or Closed. Scheduled / On the way / In progress do not
+//      count. This matches the app's canonical EARNED_JOB_STATUSES
+//      (lib/lead-scoring-storage.ts): a finished job progresses
+//      Completed → Invoiced → Paid → Closed, so all four mean the work was
+//      done. (Cancelled/dead work is never a job status — it lives in the
+//      leads domain as 'lost' — so nothing delivered is wrongly included.)
 //   2. a phone that is a real, valid 10-digit US number.
 //
-// Note the deliberate asymmetry: `completedJobCount` / `lastCompletedJobDate`
-// use the strict 'Completed' gate, but `lifetimeValue` reuses the app's
-// canonical `customerLifetimeValue` (which also counts Paid) so the dollar
-// figure matches what the rest of the app shows for that customer.
+// `completedJobCount` / `lastCompletedJobDate` count these earned jobs, and
+// `lifetimeValue` reuses the app's canonical `customerLifetimeValue`, so the
+// dollar figure matches what the rest of the app shows for that customer.
 
 export interface ExportRow {
   firstName: string
   lastName: string
   /** E.164, e.g. +15595551234. */
   phone: string
-  /** YYYY-MM-DD of the most recent 'Completed' job. */
+  /** YYYY-MM-DD of the most recent earned (Completed/Invoiced/Paid/Closed) job. */
   lastCompletedJobDate: string
   completedJobCount: number
   lifetimeValue: number
@@ -80,8 +83,13 @@ function toDateOnly(date: string): string {
   return Number.isNaN(d.getTime()) ? date : d.toISOString().slice(0, 10)
 }
 
+// Mirrors EARNED_JOB_STATUSES in lib/lead-scoring-storage.ts: every status that
+// means the work was actually delivered. Kept as a local literal set (rather
+// than imported) so this pure, browser-safe module has no storage-layer deps.
+const EARNED_JOB_STATUSES = new Set(['Completed', 'Invoiced', 'Paid', 'Closed'])
+
 function isCompleted(status: string | undefined): boolean {
-  return status === 'Completed'
+  return status !== undefined && EARNED_JOB_STATUSES.has(status)
 }
 
 /**

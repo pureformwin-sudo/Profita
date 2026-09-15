@@ -80,8 +80,9 @@ export function CustomersExportDialog({ customers, jobs }: CustomersExportDialog
         <DialogHeader>
           <DialogTitle>Export SMS campaign list</DialogTitle>
           <DialogDescription>
-            Only customers with a completed job and a valid phone number are included. Numbers are
-            formatted in E.164 (+15595551234) for import.
+            Only customers with a job whose work was delivered (Completed, Invoiced, Paid, or
+            Closed) and a valid phone number are included. Numbers are formatted in E.164
+            (+15595551234) for import.
           </DialogDescription>
         </DialogHeader>
 
