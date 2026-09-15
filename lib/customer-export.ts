@@ -22,6 +22,14 @@ export interface ExportRow {
   lastName: string
   /** E.164, e.g. +15595551234. */
   phone: string
+  // Address is stored as one free-text field on the customer, so these five
+  // columns are a best-effort parse (see parseAddress). Any column may be blank
+  // when it can't be derived; the row still exports.
+  addressLine1: string
+  unit: string
+  city: string
+  state: string
+  zip: string
   /** YYYY-MM-DD of the most recent earned (Completed/Invoiced/Paid/Closed) job. */
   lastCompletedJobDate: string
   completedJobCount: number
@@ -42,6 +50,8 @@ export interface ExportStats {
   excludedBadPhone: number
   deduped: number
   collisions: PhoneCollision[]
+  /** Of the exported (passed) rows, how many have no address on file. */
+  missingAddress: number
 }
 
 export interface ExportResult {
@@ -77,6 +87,134 @@ export function toE164(raw: string | null | undefined): string | null {
   return `+1${digits}`
 }
 
+export interface ParsedAddress {
+  line1: string
+  unit: string
+  city: string
+  state: string
+  zip: string
+}
+
+// USPS state/territory abbreviations, plus full names mapped to them, so a
+// trailing "California" or "CA" both resolve to "CA".
+const STATE_ABBRS = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL',
+  'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT',
+  'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI',
+  'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC',
+])
+const STATE_NAMES: Record<string, string> = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA',
+  colorado: 'CO', connecticut: 'CT', delaware: 'DE', florida: 'FL', georgia: 'GA',
+  hawaii: 'HI', idaho: 'ID', illinois: 'IL', indiana: 'IN', iowa: 'IA',
+  kansas: 'KS', kentucky: 'KY', louisiana: 'LA', maine: 'ME', maryland: 'MD',
+  massachusetts: 'MA', michigan: 'MI', minnesota: 'MN', mississippi: 'MS',
+  missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV',
+  'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+  'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH', oklahoma: 'OK',
+  oregon: 'OR', pennsylvania: 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+  'south dakota': 'SD', tennessee: 'TN', texas: 'TX', utah: 'UT', vermont: 'VT',
+  virginia: 'VA', washington: 'WA', 'west virginia': 'WV', wisconsin: 'WI',
+  wyoming: 'WY',
+}
+
+// Street-type suffixes used to find where the street ends and the city begins
+// when there is no comma to separate them.
+const STREET_SUFFIXES = new Set([
+  'ave', 'avenue', 'st', 'street', 'rd', 'road', 'dr', 'drive', 'ln', 'lane',
+  'blvd', 'boulevard', 'ct', 'court', 'cir', 'circle', 'way', 'pl', 'place',
+  'ter', 'terrace', 'pkwy', 'parkway', 'hwy', 'highway', 'loop', 'trail', 'trl',
+  'run', 'path', 'pass', 'row', 'walk', 'sq', 'square',
+])
+const DIRECTIONALS = new Set(['n', 's', 'e', 'w', 'north', 'south', 'east', 'west', 'ne', 'nw', 'se', 'sw'])
+
+const norm = (t: string) => t.replace(/[.,]/g, '').toLowerCase()
+
+const EMPTY_ADDRESS: ParsedAddress = { line1: '', unit: '', city: '', state: '', zip: '' }
+
+/**
+ * Best-effort parse of a single free-text address into five columns. The stored
+ * data is inconsistent (street only, "street, city", or fully qualified), so
+ * this is heuristic, not authoritative: it peels the zip, state, and unit off
+ * the end, then splits line1 from city using commas when present and a
+ * street-suffix heuristic otherwise. Any field may come back empty.
+ */
+export function parseAddress(raw: string | null | undefined): ParsedAddress {
+  if (!raw) return { ...EMPTY_ADDRESS }
+  let s = raw.trim().replace(/\s+/g, ' ')
+  if (!s) return { ...EMPTY_ADDRESS }
+
+  const stripTail = (x: string) => x.replace(/[\s,]+$/, '')
+
+  // 1. ZIP (5 or 5-4) at the very end.
+  let zip = ''
+  const zipM = s.match(/\b(\d{5})(?:-\d{4})?\s*$/)
+  if (zipM) {
+    zip = zipM[1]
+    s = stripTail(s.slice(0, zipM.index))
+  }
+
+  // 2. State abbreviation or full name at the end.
+  let state = ''
+  const lower = s.toLowerCase()
+  const twoLetter = s.match(/[A-Za-z]{2}\s*$/)
+  if (twoLetter && STATE_ABBRS.has(twoLetter[0].trim().toUpperCase())) {
+    state = twoLetter[0].trim().toUpperCase()
+    s = stripTail(s.slice(0, twoLetter.index))
+  } else {
+    for (const [name, abbr] of Object.entries(STATE_NAMES)) {
+      if (lower === name || lower.endsWith(' ' + name)) {
+        state = abbr
+        s = stripTail(s.slice(0, s.length - name.length))
+        break
+      }
+    }
+  }
+
+  // 3. Secondary unit designator anywhere in what remains.
+  let unit = ''
+  const unitM = s.match(/\b(?:apt|apartment|unit|suite|ste|bldg|building|lot|rm|room|space|spc|trlr)\b\.?\s*#?\s*([A-Za-z0-9-]+)/i)
+  if (unitM) {
+    unit = unitM[1]
+    s = (s.slice(0, unitM.index) + ' ' + s.slice(unitM.index! + unitM[0].length)).replace(/\s+/g, ' ').trim()
+  } else {
+    const hashM = s.match(/#\s*([A-Za-z0-9-]+)/)
+    if (hashM) {
+      unit = hashM[1]
+      s = (s.slice(0, hashM.index) + ' ' + s.slice(hashM.index! + hashM[0].length)).replace(/\s+/g, ' ').trim()
+    }
+  }
+  s = stripTail(s)
+
+  // 4. Split line1 from city.
+  let line1 = s
+  let city = ''
+  if (s.includes(',')) {
+    const parts = s.split(',').map((p) => p.trim()).filter(Boolean)
+    line1 = parts[0] ?? ''
+    city = parts.slice(1).join(', ')
+  } else if (state || zip) {
+    // No comma but a geographic tail existed, so a trailing city is likely.
+    // Split just after the last street suffix (absorbing a trailing directional
+    // like "west" into the street), leaving the rest as the city.
+    const tokens = s.split(' ')
+    let suffixIdx = -1
+    for (let i = 0; i < tokens.length; i++) {
+      if (STREET_SUFFIXES.has(norm(tokens[i]))) suffixIdx = i
+    }
+    if (suffixIdx >= 0) {
+      let end = suffixIdx
+      if (end + 1 < tokens.length && DIRECTIONALS.has(norm(tokens[end + 1]))) end++
+      if (end + 1 < tokens.length) {
+        line1 = tokens.slice(0, end + 1).join(' ')
+        city = tokens.slice(end + 1).join(' ')
+      }
+    }
+  }
+
+  return { line1: line1.trim(), unit: unit.trim(), city: city.trim(), state, zip }
+}
+
 function toDateOnly(date: string): string {
   if (/^\d{4}-\d{2}-\d{2}/.test(date)) return date.slice(0, 10)
   const d = new Date(date)
@@ -104,6 +242,7 @@ export function buildExportList(customers: Customer[], jobs: Job[]): ExportResul
     excludedBadPhone: 0,
     deduped: 0,
     collisions: [],
+    missingAddress: 0,
   }
 
   // Index completed jobs by customer once, so the scan is O(jobs + customers).
@@ -117,6 +256,7 @@ export function buildExportList(customers: Customer[], jobs: Job[]): ExportResul
 
   interface Candidate extends ExportRow {
     name: string
+    hasAddress: boolean
   }
   const candidates: Candidate[] = []
 
@@ -135,11 +275,19 @@ export function buildExportList(customers: Customer[], jobs: Job[]): ExportResul
       .map((j) => toDateOnly(j.date))
       .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))[0]
     const { firstName, lastName } = splitName(customer.name)
+    const rawAddress = (customer.address ?? '').trim()
+    const addr = parseAddress(rawAddress)
     candidates.push({
       name: customer.name.trim() || '(unnamed)',
       firstName,
       lastName,
       phone,
+      addressLine1: addr.line1,
+      unit: addr.unit,
+      city: addr.city,
+      state: addr.state,
+      zip: addr.zip,
+      hasAddress: rawAddress.length > 0,
       lastCompletedJobDate: lastDate,
       completedJobCount: completed.length,
       lifetimeValue: customerLifetimeValue(customer.id, jobs),
@@ -186,8 +334,9 @@ export function buildExportList(customers: Customer[], jobs: Job[]): ExportResul
   )
 
   stats.passed = kept.length
+  stats.missingAddress = kept.filter((c) => !c.hasAddress).length
 
-  const rows: ExportRow[] = kept.map(({ name: _name, ...row }) => row)
+  const rows: ExportRow[] = kept.map(({ name: _name, hasAddress: _hasAddress, ...row }) => row)
   return { rows, stats }
 }
 
@@ -202,6 +351,11 @@ export function toCsv(rows: ExportRow[]): string {
     'first_name',
     'last_name',
     'phone',
+    'address_line1',
+    'unit',
+    'city',
+    'state',
+    'zip',
     'last_completed_job_date',
     'completed_job_count',
     'lifetime_value',
@@ -213,6 +367,11 @@ export function toCsv(rows: ExportRow[]): string {
         csvCell(r.firstName),
         csvCell(r.lastName),
         csvCell(r.phone),
+        csvCell(r.addressLine1),
+        csvCell(r.unit),
+        csvCell(r.city),
+        csvCell(r.state),
+        csvCell(r.zip),
         csvCell(r.lastCompletedJobDate),
         csvCell(r.completedJobCount),
         csvCell(r.lifetimeValue.toFixed(2)),

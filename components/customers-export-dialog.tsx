@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Download, Users, CheckCircle2, PhoneOff, CalendarX, Copy } from 'lucide-react'
+import { Download, Users, CheckCircle2, PhoneOff, CalendarX, Copy, MapPinOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -115,6 +115,12 @@ export function CustomersExportDialog({ customers, jobs }: CustomersExportDialog
                 label="Deduplicated"
                 value={stats.deduped}
                 accent={stats.deduped > 0 ? 'text-amber-500' : undefined}
+              />
+              <StatCard
+                icon={<MapPinOff className="h-3.5 w-3.5" />}
+                label="Exported, no address"
+                value={stats.missingAddress}
+                accent={stats.missingAddress > 0 ? 'text-amber-500' : undefined}
               />
             </div>
 
